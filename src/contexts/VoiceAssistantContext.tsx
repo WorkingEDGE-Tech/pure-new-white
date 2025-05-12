@@ -40,6 +40,8 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthRef = useRef<SpeechSynthesis | null>(null);
   const wakeWordRecognitionRef = useRef<SpeechRecognition | null>(null);
+  const finalTranscriptRef = useRef('');
+  const listeningTimeoutRef = useRef<number | null>(null);
 
   // Initialize speech synthesis
   useEffect(() => {
@@ -68,9 +70,21 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
     }
 
     return () => {
-      // Clean up speech synthesis
+      // Clean up speech synthesis and recognition
       if (synthRef.current) {
         synthRef.current.cancel();
+      }
+      
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+      
+      if (wakeWordRecognitionRef.current) {
+        wakeWordRecognitionRef.current.abort();
+      }
+      
+      if (listeningTimeoutRef.current) {
+        window.clearTimeout(listeningTimeoutRef.current);
       }
     };
   }, []);
@@ -106,14 +120,17 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
 
     const SpeechRecognitionAPI = window.webkitSpeechRecognition || window.SpeechRecognition;
     const recognition = new SpeechRecognitionAPI();
+    
+    // Set up recognition parameters
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
 
-    let finalTranscript = '';
+    finalTranscriptRef.current = '';
 
     recognition.onresult = (event) => {
       let interimTranscript = '';
+      let finalTranscript = finalTranscriptRef.current;
       
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
@@ -123,25 +140,81 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
         }
       }
       
-      // If we have a final transcript, process it
-      if (finalTranscript.trim() !== '') {
-        sendTextMessage(finalTranscript);
-        finalTranscript = '';
+      // If we have a final transcript, update the ref
+      if (finalTranscript !== finalTranscriptRef.current) {
+        finalTranscriptRef.current = finalTranscript;
       }
+      
+      // Reset the timeout each time we get a result
+      if (listeningTimeoutRef.current) {
+        window.clearTimeout(listeningTimeoutRef.current);
+      }
+      
+      // Set a new timeout
+      listeningTimeoutRef.current = window.setTimeout(() => {
+        if (finalTranscriptRef.current.trim() !== '') {
+          // Process the transcript and reset
+          const textToProcess = finalTranscriptRef.current.trim();
+          finalTranscriptRef.current = '';
+          
+          // Stop recognition before processing to prevent overlap
+          recognition.stop();
+          setIsListening(false);
+          
+          // Process the text
+          sendTextMessage(textToProcess);
+        } else {
+          // No speech detected, just stop listening
+          recognition.stop();
+          setIsListening(false);
+          
+          // Restart wake word detection if needed
+          if (wakeWordActive) {
+            initializeWakeWordDetection();
+          }
+        }
+      }, 1500); // 1.5 seconds of silence
     };
 
     recognition.onerror = (event) => {
       console.error('Speech recognition error', event.error);
+      if (listeningTimeoutRef.current) {
+        window.clearTimeout(listeningTimeoutRef.current);
+      }
+      
       setIsListening(false);
       if (event.error === 'not-allowed') {
         toast.error("Microphone permission denied. Please enable microphone access.");
+      }
+      
+      // Restart wake word detection if needed
+      if (wakeWordActive) {
+        initializeWakeWordDetection();
       }
     };
 
     recognition.onend = () => {
       // Only reset if we're not actively stopping it
-      if (isListening) {
-        setIsListening(false);
+      console.log('Speech recognition ended');
+      
+      // Clear timeout if it exists
+      if (listeningTimeoutRef.current) {
+        window.clearTimeout(listeningTimeoutRef.current);
+        listeningTimeoutRef.current = null;
+      }
+      
+      // Process any final transcript if available
+      if (finalTranscriptRef.current.trim() !== '') {
+        const textToProcess = finalTranscriptRef.current.trim();
+        finalTranscriptRef.current = '';
+        sendTextMessage(textToProcess);
+      }
+      
+      setIsListening(false);
+      
+      // Restart wake word detection if needed
+      if (wakeWordActive) {
+        setTimeout(initializeWakeWordDetection, 500); // Small delay to avoid conflicts
       }
     };
 
@@ -151,14 +224,23 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
 
   // Initialize wake word detection
   const initializeWakeWordDetection = () => {
+    if (isProcessing || isSpeaking) {
+      // Don't initialize if we're processing or speaking
+      return;
+    }
+    
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
       toast.error("Speech recognition is not supported in your browser.");
       setWakeWordActive(false);
       return;
     }
 
+    // Stop any existing wake word detection
+    stopWakeWordDetection();
+
     const SpeechRecognitionAPI = window.webkitSpeechRecognition || window.SpeechRecognition;
     const recognition = new SpeechRecognitionAPI();
+    
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
@@ -168,11 +250,14 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
         const transcript = event.results[i][0].transcript.toLowerCase().trim();
         
         if (transcript.includes(WAKE_WORD)) {
-          toast.success(`Wake word detected: ${WAKE_WORD}`);
+          toast.success(`Wake word detected: "${WAKE_WORD}"`);
           // Stop wake word detection temporarily
           recognition.stop();
-          // Start listening for the command
-          toggleListening();
+          // Start listening for the command after a small delay
+          setTimeout(() => {
+            toggleListening();
+          }, 300);
+          return;
         }
       }
     };
@@ -182,24 +267,53 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
       if (event.error === 'not-allowed') {
         toast.error("Microphone permission denied. Please enable microphone access.");
         setWakeWordActive(false);
+      } else {
+        // Try to restart wake word detection after a error
+        setTimeout(() => {
+          if (wakeWordActive && !isProcessing && !isSpeaking) {
+            initializeWakeWordDetection();
+          }
+        }, 2000);
       }
     };
 
     recognition.onend = () => {
       // Restart if wake word is still active and we're not currently listening
-      if (wakeWordActive && !isListening) {
-        recognition.start();
+      if (wakeWordActive && !isListening && !isProcessing && !isSpeaking) {
+        setTimeout(() => {
+          if (wakeWordRecognitionRef.current) {
+            try {
+              wakeWordRecognitionRef.current.start();
+            } catch (e) {
+              console.error('Failed to restart wake word detection:', e);
+              wakeWordRecognitionRef.current = null;
+              // Try to initialize again
+              initializeWakeWordDetection();
+            }
+          }
+        }, 300);
       }
     };
 
     wakeWordRecognitionRef.current = recognition;
-    recognition.start();
+    
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error('Failed to start wake word detection:', e);
+      // Try again after a delay
+      setTimeout(initializeWakeWordDetection, 1000);
+    }
   };
 
   // Stop wake word detection
   const stopWakeWordDetection = () => {
     if (wakeWordRecognitionRef.current) {
-      wakeWordRecognitionRef.current.stop();
+      try {
+        wakeWordRecognitionRef.current.stop();
+      } catch (e) {
+        console.error('Error stopping wake word detection:', e);
+      }
       wakeWordRecognitionRef.current = null;
     }
   };
@@ -207,41 +321,80 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
   // Toggle listening state
   const toggleListening = () => {
     if (isListening) {
+      // If already listening, stop it
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
       setIsListening(false);
+      
+      // Process any existing transcript
+      if (finalTranscriptRef.current.trim() !== '') {
+        const textToProcess = finalTranscriptRef.current.trim();
+        finalTranscriptRef.current = '';
+        sendTextMessage(textToProcess);
+      }
+      
+      // Clear any existing timeout
+      if (listeningTimeoutRef.current) {
+        window.clearTimeout(listeningTimeoutRef.current);
+        listeningTimeoutRef.current = null;
+      }
     } else {
+      // Stop wake word detection if it's running
+      stopWakeWordDetection();
+      
+      // Initialize speech recognition if needed
       if (!recognitionRef.current) {
         const initialized = initializeSpeechRecognition();
         if (!initialized) return;
       }
       
-      // Stop wake word detection while actively listening
-      if (wakeWordRecognitionRef.current) {
-        wakeWordRecognitionRef.current.stop();
-      }
+      // Reset transcript
+      finalTranscriptRef.current = '';
       
-      recognitionRef.current?.start();
-      setIsListening(true);
-      
-      // Add a timeout to stop listening after 8 seconds of silence
-      setTimeout(() => {
-        if (isListening && recognitionRef.current) {
-          recognitionRef.current.stop();
-          setIsListening(false);
-          
-          // Restart wake word detection if needed
-          if (wakeWordActive) {
-            initializeWakeWordDetection();
+      // Try to start recognition
+      try {
+        recognitionRef.current?.start();
+        setIsListening(true);
+        
+        // Set timeout to stop listening after 8 seconds of silence
+        listeningTimeoutRef.current = window.setTimeout(() => {
+          if (recognitionRef.current) {
+            recognitionRef.current.stop();
+            setIsListening(false);
+            
+            // Process any final transcript
+            if (finalTranscriptRef.current.trim() !== '') {
+              const textToProcess = finalTranscriptRef.current.trim();
+              finalTranscriptRef.current = '';
+              sendTextMessage(textToProcess);
+            }
+            
+            // Restart wake word detection if needed
+            if (wakeWordActive) {
+              setTimeout(initializeWakeWordDetection, 500);
+            }
           }
+        }, 8000);
+      } catch (e) {
+        console.error('Failed to start speech recognition:', e);
+        setIsListening(false);
+        toast.error("Failed to start speech recognition. Please try again.");
+        
+        // Restart wake word detection if needed
+        if (wakeWordActive) {
+          setTimeout(initializeWakeWordDetection, 500);
         }
-      }, 8000);
+      }
     }
   };
 
   // Toggle wake word detection
   const toggleWakeWord = () => {
+    // If we're turning off wake word detection
+    if (wakeWordActive) {
+      stopWakeWordDetection();
+    }
     setWakeWordActive(!wakeWordActive);
   };
 
@@ -254,6 +407,9 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
   // Function to speak text
   const speakText = (text: string) => {
     if (!synthRef.current) return;
+    
+    // Stop wake word detection during speech
+    stopWakeWordDetection();
     
     // Cancel any ongoing speech
     synthRef.current.cancel();
@@ -270,8 +426,18 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
       setIsSpeaking(false);
       
       // Restart wake word detection if needed
-      if (wakeWordActive && wakeWordRecognitionRef.current && !wakeWordRecognitionRef.current.running) {
-        wakeWordRecognitionRef.current.start();
+      if (wakeWordActive) {
+        setTimeout(initializeWakeWordDetection, 500);
+      }
+    };
+    
+    utterance.onerror = (event) => {
+      console.error('Speech synthesis error:', event);
+      setIsSpeaking(false);
+      
+      // Restart wake word detection if needed
+      if (wakeWordActive) {
+        setTimeout(initializeWakeWordDetection, 500);
       }
     };
     
@@ -280,8 +446,13 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
 
   // Send text message to Gemini API
   const sendTextMessage = async (text: string) => {
+    if (text.trim() === '') return;
+    
     try {
       setIsProcessing(true);
+      
+      // Stop wake word detection during processing
+      stopWakeWordDetection();
       
       // Add user message to messages
       const userMessage: Message = {
@@ -329,7 +500,11 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
                 }
               ]
             }
-          ]
+          ],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 200
+          }
         })
       });
       
@@ -338,6 +513,11 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
       }
       
       const data = await response.json();
+      
+      // Check if we have a valid response
+      if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts || !data.candidates[0].content.parts[0]) {
+        throw new Error('Invalid response format from Gemini API');
+      }
       
       // Extract text from the response
       const generatedText = data.candidates[0].content.parts[0].text;
@@ -371,9 +551,19 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
     } finally {
       setIsProcessing(false);
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          console.error('Error stopping recognition:', e);
+        }
       }
       setIsListening(false);
+      
+      // Clear any existing timeout
+      if (listeningTimeoutRef.current) {
+        window.clearTimeout(listeningTimeoutRef.current);
+        listeningTimeoutRef.current = null;
+      }
     }
   };
 
