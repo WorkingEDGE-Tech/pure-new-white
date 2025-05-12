@@ -7,6 +7,7 @@
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#2563EB",
+  "permissions": ["microphone"],
   "icons": [
     {
       "src": "/dash-icon-192.png",
