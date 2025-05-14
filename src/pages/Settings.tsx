@@ -8,9 +8,26 @@ import { Textarea } from '@/components/ui/textarea';
 import { ArrowLeft } from 'lucide-react';
 import { VoiceAssistantProvider, useVoiceAssistant } from '../contexts/VoiceAssistantContext';
 import { toast } from 'sonner';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
+// ElevenLabs Voice Options
+const ELEVEN_LABS_VOICES = [
+  { id: "9BWtsMINqrJLrRacOk9x", name: "Aria (Female)" },
+  { id: "CwhRBWXzGAHq8TQ4Fs17", name: "Roger (Male)" },
+  { id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah (Female)" },
+  { id: "FGY2WhTYpPnrIDTdsKH5", name: "Laura (Female)" },
+  { id: "IKne3meq5aSn9XLyUdCD", name: "Charlie (Male)" },
+  { id: "JBFqnCBsd6RMkjVDRZzb", name: "George (Male)" },
+  { id: "N2lVS1w4EtoT3dr4eOWO", name: "Callum (Male)" },
+  { id: "SAz9YHcvj6GT2YYXdXww", name: "River (Non-Binary)" },
+  { id: "TX3LPaxmHKxFdv7VOQHJ", name: "Liam (Male)" },
+  { id: "XB0fDUnXU5powFXDhCwa", name: "Charlotte (Female)" },
+];
 
 const SettingsContent: React.FC = () => {
   const [apiKey, setApiKey] = useState('');
+  const [elevenLabsApiKey, setElevenLabsApiKey] = useState('');
+  const [voiceId, setVoiceId] = useState('');
   const [customContext, setCustomContext] = useState('');
   const { clearMessages } = useVoiceAssistant();
   const navigate = useNavigate();
@@ -18,9 +35,13 @@ const SettingsContent: React.FC = () => {
   useEffect(() => {
     // Load saved settings from localStorage
     const savedApiKey = localStorage.getItem('dashApiKey') || '';
+    const savedElevenLabsApiKey = localStorage.getItem('dashElevenLabsApiKey') || '';
+    const savedVoiceId = localStorage.getItem('dashElevenLabsVoiceId') || '9BWtsMINqrJLrRacOk9x'; // Default to Aria
     const savedCustomContext = localStorage.getItem('dashCustomContext') || '';
     
     setApiKey(savedApiKey);
+    setElevenLabsApiKey(savedElevenLabsApiKey);
+    setVoiceId(savedVoiceId);
     setCustomContext(savedCustomContext || "You are Dash, an intelligent AI assistant. You're helpful, friendly, and concise.");
   }, []);
 
@@ -31,6 +52,8 @@ const SettingsContent: React.FC = () => {
     }
 
     localStorage.setItem('dashApiKey', apiKey.trim());
+    localStorage.setItem('dashElevenLabsApiKey', elevenLabsApiKey.trim());
+    localStorage.setItem('dashElevenLabsVoiceId', voiceId);
     localStorage.setItem('dashCustomContext', customContext.trim() || "You are Dash, an intelligent AI assistant. You're helpful, friendly, and concise.");
     
     toast.success("Settings saved successfully!");
@@ -77,6 +100,47 @@ const SettingsContent: React.FC = () => {
               >
                 Google AI Studio
               </a>
+            </p>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="eleven-labs-api-key">ElevenLabs API Key</Label>
+            <Input
+              id="eleven-labs-api-key"
+              type="password"
+              value={elevenLabsApiKey}
+              onChange={(e) => setElevenLabsApiKey(e.target.value)}
+              placeholder="Enter your ElevenLabs API key"
+            />
+            <p className="text-xs text-muted-foreground">
+              Required for natural voice responses. Get an API key from{" "}
+              <a 
+                href="https://elevenlabs.io/app/api-keys" 
+                target="_blank" 
+                rel="noreferrer" 
+                className="text-dash-blue underline"
+              >
+                ElevenLabs
+              </a>
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="voice-selection">Voice</Label>
+            <Select value={voiceId} onValueChange={setVoiceId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a voice" />
+              </SelectTrigger>
+              <SelectContent>
+                {ELEVEN_LABS_VOICES.map((voice) => (
+                  <SelectItem key={voice.id} value={voice.id}>
+                    {voice.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Choose the voice personality for Dash's responses.
             </p>
           </div>
           

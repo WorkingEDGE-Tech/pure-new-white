@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 
@@ -37,15 +38,33 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
   
   // Refs
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const synthRef = useRef<SpeechSynthesis | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const wakeWordRecognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef('');
   const listeningTimeoutRef = useRef<number | null>(null);
 
-  // Initialize speech synthesis
+  // Initialize audio element
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      synthRef.current = window.speechSynthesis;
+      audioRef.current = new Audio();
+      audioRef.current.onended = () => {
+        setIsSpeaking(false);
+        
+        // Restart wake word detection if needed
+        if (wakeWordActive) {
+          setTimeout(initializeWakeWordDetection, 500);
+        }
+      };
+      
+      audioRef.current.onerror = () => {
+        console.error('Audio playback error');
+        setIsSpeaking(false);
+        
+        // Restart wake word detection if needed
+        if (wakeWordActive) {
+          setTimeout(initializeWakeWordDetection, 500);
+        }
+      };
       
       // Load saved messages from localStorage
       const savedMessages = localStorage.getItem('dashMessages');
@@ -69,11 +88,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
     }
 
     return () => {
-      // Clean up speech synthesis and recognition
-      if (synthRef.current) {
-        synthRef.current.cancel();
-      }
-      
+      // Clean up speech recognition
       if (recognitionRef.current) {
         recognitionRef.current.abort();
       }
@@ -84,6 +99,12 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
       
       if (listeningTimeoutRef.current) {
         window.clearTimeout(listeningTimeoutRef.current);
+      }
+      
+      // Stop any playing audio
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
       }
     };
   }, []);
@@ -403,15 +424,91 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
     localStorage.removeItem('dashMessages');
   };
 
-  // Function to speak text
-  const speakText = (text: string) => {
-    if (!synthRef.current) return;
-    
+  // Function to speak text using ElevenLabs
+  const speakText = async (text: string) => {
     // Stop wake word detection during speech
     stopWakeWordDetection();
     
+    // Get ElevenLabs API key
+    const elevenLabsApiKey = localStorage.getItem('dashElevenLabsApiKey');
+    
+    if (!elevenLabsApiKey) {
+      // Fall back to browser speech synthesis if no ElevenLabs API key
+      speakWithBrowserSynthesis(text);
+      return;
+    }
+    
+    // Get selected voice ID or use default (Aria)
+    const voiceId = localStorage.getItem('dashElevenLabsVoiceId') || '9BWtsMINqrJLrRacOk9x';
+    
+    try {
+      setIsSpeaking(true);
+      
+      // Call ElevenLabs API
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'xi-api-key': elevenLabsApiKey
+        },
+        body: JSON.stringify({
+          text: text,
+          model_id: "eleven_monolingual_v1",
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.5
+          }
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`ElevenLabs API error: ${response.status}`);
+      }
+      
+      // Get audio blob
+      const audioBlob = await response.blob();
+      
+      // Play the audio
+      if (audioRef.current) {
+        const audioUrl = URL.createObjectURL(audioBlob);
+        audioRef.current.src = audioUrl;
+        
+        try {
+          await audioRef.current.play();
+        } catch (error) {
+          console.error('Error playing audio:', error);
+          setIsSpeaking(false);
+          
+          // Restart wake word detection if needed
+          if (wakeWordActive) {
+            setTimeout(initializeWakeWordDetection, 500);
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error with ElevenLabs TTS:', error);
+      
+      // Fall back to browser speech synthesis
+      speakWithBrowserSynthesis(text);
+    }
+  };
+  
+  // Fallback function to use browser's speech synthesis
+  const speakWithBrowserSynthesis = (text: string) => {
+    if (!('speechSynthesis' in window)) {
+      console.error('Speech synthesis not supported');
+      setIsSpeaking(false);
+      
+      // Restart wake word detection if needed
+      if (wakeWordActive) {
+        setTimeout(initializeWakeWordDetection, 500);
+      }
+      return;
+    }
+    
     // Cancel any ongoing speech
-    synthRef.current.cancel();
+    window.speechSynthesis.cancel();
     
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.0;
@@ -440,7 +537,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
       }
     };
     
-    synthRef.current.speak(utterance);
+    window.speechSynthesis.speak(utterance);
   };
 
   // Send text message to Gemini API
