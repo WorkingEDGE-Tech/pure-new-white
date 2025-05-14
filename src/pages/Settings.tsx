@@ -51,17 +51,72 @@ const SettingsContent: React.FC = () => {
       return;
     }
 
+    // Save settings to localStorage
     localStorage.setItem('dashApiKey', apiKey.trim());
     localStorage.setItem('dashElevenLabsApiKey', elevenLabsApiKey.trim());
     localStorage.setItem('dashElevenLabsVoiceId', voiceId);
     localStorage.setItem('dashCustomContext', customContext.trim() || "You are Dash, an intelligent AI assistant. You're helpful, friendly, and concise.");
     
-    toast.success("Settings saved successfully!");
+    toast.success("Settings saved successfully!", {
+      duration: 2000,
+      position: "bottom-center",
+      dismissible: true
+    });
+    
+    // If ElevenLabs API key was provided, show additional toast
+    if (elevenLabsApiKey.trim()) {
+      toast.success("ElevenLabs voice will be used for responses", {
+        duration: 3000,
+        position: "bottom-center",
+        dismissible: true
+      });
+    }
   };
   
   const handleClearChat = () => {
     clearMessages();
     toast.success("Chat history cleared!");
+  };
+  
+  const handleTestVoice = async () => {
+    if (!elevenLabsApiKey.trim()) {
+      toast.error("Please enter your ElevenLabs API key first");
+      return;
+    }
+    
+    toast.info("Testing voice...");
+    
+    try {
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'xi-api-key': elevenLabsApiKey.trim()
+        },
+        body: JSON.stringify({
+          text: "Hello! This is a test of my voice with ElevenLabs.",
+          model_id: "eleven_multilingual_v1",
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.5
+          }
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`ElevenLabs API error: ${response.status}`);
+      }
+      
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      const audio = new Audio(audioUrl);
+      audio.play();
+      
+    } catch (error) {
+      console.error('Error testing voice:', error);
+      toast.error("Failed to test voice. Please check your API key and try again.");
+    }
   };
 
   return (
@@ -104,13 +159,17 @@ const SettingsContent: React.FC = () => {
           </div>
           
           <div className="space-y-2">
-            <Label htmlFor="eleven-labs-api-key">ElevenLabs API Key</Label>
+            <Label htmlFor="eleven-labs-api-key" className="flex justify-between">
+              <span>ElevenLabs API Key</span>
+              <span className="text-dash-blue text-sm">Required for voice</span>
+            </Label>
             <Input
               id="eleven-labs-api-key"
               type="password"
               value={elevenLabsApiKey}
               onChange={(e) => setElevenLabsApiKey(e.target.value)}
               placeholder="Enter your ElevenLabs API key"
+              className="transition-all focus:ring-2 focus:ring-dash-blue"
             />
             <p className="text-xs text-muted-foreground">
               Required for natural voice responses. Get an API key from{" "}
@@ -126,7 +185,17 @@ const SettingsContent: React.FC = () => {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="voice-selection">Voice</Label>
+            <div className="flex justify-between items-center">
+              <Label htmlFor="voice-selection">Voice</Label>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleTestVoice}
+                className="text-xs h-7 px-2 text-dash-blue border-dash-blue"
+              >
+                Test Voice
+              </Button>
+            </div>
             <Select value={voiceId} onValueChange={setVoiceId}>
               <SelectTrigger>
                 <SelectValue placeholder="Select a voice" />
@@ -160,7 +229,7 @@ const SettingsContent: React.FC = () => {
           
           <div className="pt-4 space-y-4">
             <Button 
-              className="w-full bg-dash-blue hover:bg-dash-darkBlue"
+              className="w-full bg-dash-blue hover:bg-dash-darkBlue transition-all duration-300"
               onClick={handleSaveSettings}
             >
               Save Settings

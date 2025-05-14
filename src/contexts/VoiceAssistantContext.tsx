@@ -27,6 +27,8 @@ const VoiceAssistantContext = createContext<VoiceAssistantContextType | undefine
 
 // Constants
 const WAKE_WORD = "dash";
+const LISTENING_TIMEOUT = 6000; // Reduced from 8000ms to 6000ms for lower latency
+const WAKE_WORD_RESTART_DELAY = 300; // Reduced delay for wake word detection restart
 
 export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // State for the assistant
@@ -42,6 +44,8 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
   const wakeWordRecognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef('');
   const listeningTimeoutRef = useRef<number | null>(null);
+  const wakeWordRetryCountRef = useRef(0);
+  const maxWakeWordRetries = 3;
 
   // Initialize audio element
   useEffect(() => {
@@ -52,7 +56,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
         
         // Restart wake word detection if needed
         if (wakeWordActive) {
-          setTimeout(initializeWakeWordDetection, 500);
+          setTimeout(initializeWakeWordDetection, WAKE_WORD_RESTART_DELAY);
         }
       };
       
@@ -62,7 +66,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
         
         // Restart wake word detection if needed
         if (wakeWordActive) {
-          setTimeout(initializeWakeWordDetection, 500);
+          setTimeout(initializeWakeWordDetection, WAKE_WORD_RESTART_DELAY);
         }
       };
       
@@ -121,6 +125,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
     localStorage.setItem('dashWakeWordActive', wakeWordActive.toString());
     
     if (wakeWordActive) {
+      wakeWordRetryCountRef.current = 0; // Reset retry counter
       initializeWakeWordDetection();
     } else {
       stopWakeWordDetection();
@@ -170,7 +175,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
         window.clearTimeout(listeningTimeoutRef.current);
       }
       
-      // Set a new timeout
+      // Set a new timeout - reduced for better responsiveness
       listeningTimeoutRef.current = window.setTimeout(() => {
         if (finalTranscriptRef.current.trim() !== '') {
           // Process the transcript and reset
@@ -193,7 +198,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
             initializeWakeWordDetection();
           }
         }
-      }, 1500); // 1.5 seconds of silence
+      }, 1200); // Reduced from 1500ms to 1200ms for lower latency
     };
 
     recognition.onerror = (event) => {
@@ -205,11 +210,13 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
       setIsListening(false);
       if (event.error === 'not-allowed') {
         toast.error("Microphone permission denied. Please enable microphone access.");
+      } else if (event.error === 'network') {
+        toast.error("Network error occurred. Please check your connection.");
       }
       
       // Restart wake word detection if needed
       if (wakeWordActive) {
-        initializeWakeWordDetection();
+        setTimeout(initializeWakeWordDetection, WAKE_WORD_RESTART_DELAY);
       }
     };
 
@@ -234,7 +241,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
       
       // Restart wake word detection if needed
       if (wakeWordActive) {
-        setTimeout(initializeWakeWordDetection, 500); // Small delay to avoid conflicts
+        setTimeout(initializeWakeWordDetection, WAKE_WORD_RESTART_DELAY);
       }
     };
 
@@ -242,7 +249,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
     return true;
   };
 
-  // Initialize wake word detection
+  // Initialize wake word detection with improved reliability
   const initializeWakeWordDetection = () => {
     if (isProcessing || isSpeaking) {
       // Don't initialize if we're processing or speaking
@@ -273,10 +280,12 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
           toast.success(`Wake word detected: "${WAKE_WORD}"`);
           // Stop wake word detection temporarily
           recognition.stop();
+          // Reset retry counter on successful detection
+          wakeWordRetryCountRef.current = 0;
           // Start listening for the command after a small delay
           setTimeout(() => {
             toggleListening();
-          }, 300);
+          }, WAKE_WORD_RESTART_DELAY);
           return;
         }
       }
@@ -284,16 +293,33 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
 
     recognition.onerror = (event) => {
       console.error('Wake word recognition error', event.error);
+      
       if (event.error === 'not-allowed') {
         toast.error("Microphone permission denied. Please enable microphone access.");
         setWakeWordActive(false);
+      } else if (event.error === 'network') {
+        // Network errors are often temporary
+        wakeWordRetryCountRef.current++;
+        
+        if (wakeWordRetryCountRef.current < maxWakeWordRetries) {
+          // Try to restart wake word detection after a error with exponential backoff
+          const backoffTime = Math.min(1000 * Math.pow(2, wakeWordRetryCountRef.current - 1), 5000);
+          setTimeout(() => {
+            if (wakeWordActive && !isProcessing && !isSpeaking) {
+              initializeWakeWordDetection();
+            }
+          }, backoffTime);
+        } else {
+          toast.error("Failed to initialize wake word detection after multiple attempts.");
+          setWakeWordActive(false);
+        }
       } else {
-        // Try to restart wake word detection after a error
+        // Try to restart wake word detection after other errors
         setTimeout(() => {
           if (wakeWordActive && !isProcessing && !isSpeaking) {
             initializeWakeWordDetection();
           }
-        }, 2000);
+        }, 1000);
       }
     };
 
@@ -307,11 +333,21 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
             } catch (e) {
               console.error('Failed to restart wake word detection:', e);
               wakeWordRecognitionRef.current = null;
-              // Try to initialize again
+              
+              // Try to initialize again with a brief delay
+              setTimeout(() => {
+                if (wakeWordActive && !isListening && !isProcessing && !isSpeaking) {
+                  initializeWakeWordDetection();
+                }
+              }, WAKE_WORD_RESTART_DELAY);
+            }
+          } else {
+            // If the reference is null, try to initialize again
+            if (wakeWordActive && !isListening && !isProcessing && !isSpeaking) {
               initializeWakeWordDetection();
             }
           }
-        }, 300);
+        }, WAKE_WORD_RESTART_DELAY);
       }
     };
 
@@ -319,10 +355,19 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
     
     try {
       recognition.start();
+      wakeWordRetryCountRef.current = 0; // Reset retry counter on successful start
     } catch (e) {
       console.error('Failed to start wake word detection:', e);
-      // Try again after a delay
-      setTimeout(initializeWakeWordDetection, 1000);
+      
+      // Try again after a delay with exponential backoff
+      wakeWordRetryCountRef.current++;
+      if (wakeWordRetryCountRef.current < maxWakeWordRetries) {
+        const backoffTime = Math.min(1000 * Math.pow(2, wakeWordRetryCountRef.current - 1), 5000);
+        setTimeout(initializeWakeWordDetection, backoffTime);
+      } else {
+        toast.error("Failed to initialize wake word detection after multiple attempts.");
+        setWakeWordActive(false);
+      }
     }
   };
 
@@ -377,7 +422,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
         recognitionRef.current?.start();
         setIsListening(true);
         
-        // Set timeout to stop listening after 8 seconds of silence
+        // Set timeout to stop listening after silence
         listeningTimeoutRef.current = window.setTimeout(() => {
           if (recognitionRef.current) {
             recognitionRef.current.stop();
@@ -392,10 +437,10 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
             
             // Restart wake word detection if needed
             if (wakeWordActive) {
-              setTimeout(initializeWakeWordDetection, 500);
+              setTimeout(initializeWakeWordDetection, WAKE_WORD_RESTART_DELAY);
             }
           }
-        }, 8000);
+        }, LISTENING_TIMEOUT); // Reduced timeout for better responsiveness
       } catch (e) {
         console.error('Failed to start speech recognition:', e);
         setIsListening(false);
@@ -403,7 +448,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
         
         // Restart wake word detection if needed
         if (wakeWordActive) {
-          setTimeout(initializeWakeWordDetection, 500);
+          setTimeout(initializeWakeWordDetection, WAKE_WORD_RESTART_DELAY);
         }
       }
     }
@@ -432,6 +477,9 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
     // Get ElevenLabs API key
     const elevenLabsApiKey = localStorage.getItem('dashElevenLabsApiKey');
     
+    // Set speaking state to true regardless of which TTS we use
+    setIsSpeaking(true);
+    
     if (!elevenLabsApiKey) {
       // Fall back to browser speech synthesis if no ElevenLabs API key
       speakWithBrowserSynthesis(text);
@@ -442,8 +490,6 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
     const voiceId = localStorage.getItem('dashElevenLabsVoiceId') || '9BWtsMINqrJLrRacOk9x';
     
     try {
-      setIsSpeaking(true);
-      
       // Call ElevenLabs API
       const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
         method: 'POST',
@@ -453,7 +499,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
         },
         body: JSON.stringify({
           text: text,
-          model_id: "eleven_monolingual_v1",
+          model_id: "eleven_multilingual_v1", // Use multilingual model for better support
           voice_settings: {
             stability: 0.5,
             similarity_boost: 0.5
@@ -462,6 +508,8 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
       });
       
       if (!response.ok) {
+        console.error(`ElevenLabs API error: ${response.status}`);
+        // If API call fails, fallback to browser speech
         throw new Error(`ElevenLabs API error: ${response.status}`);
       }
       
@@ -481,7 +529,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
           
           // Restart wake word detection if needed
           if (wakeWordActive) {
-            setTimeout(initializeWakeWordDetection, 500);
+            setTimeout(initializeWakeWordDetection, WAKE_WORD_RESTART_DELAY);
           }
         }
       }
@@ -502,7 +550,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
       
       // Restart wake word detection if needed
       if (wakeWordActive) {
-        setTimeout(initializeWakeWordDetection, 500);
+        setTimeout(initializeWakeWordDetection, WAKE_WORD_RESTART_DELAY);
       }
       return;
     }
@@ -511,7 +559,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
     window.speechSynthesis.cancel();
     
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
+    utterance.rate = 1.1; // Slightly faster rate
     utterance.pitch = 1.0;
     
     utterance.onstart = () => {
@@ -523,7 +571,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
       
       // Restart wake word detection if needed
       if (wakeWordActive) {
-        setTimeout(initializeWakeWordDetection, 500);
+        setTimeout(initializeWakeWordDetection, WAKE_WORD_RESTART_DELAY);
       }
     };
     
@@ -533,14 +581,14 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
       
       // Restart wake word detection if needed
       if (wakeWordActive) {
-        setTimeout(initializeWakeWordDetection, 500);
+        setTimeout(initializeWakeWordDetection, WAKE_WORD_RESTART_DELAY);
       }
     };
     
     window.speechSynthesis.speak(utterance);
   };
 
-  // Send text message to Gemini API
+  // Send text message to Gemini API with optimized performance
   const sendTextMessage = async (text: string) => {
     if (text.trim() === '') return;
     
@@ -581,7 +629,7 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
       // Get custom context from local storage
       const customContext = localStorage.getItem('dashCustomContext') || "You are Dash, an intelligent AI assistant. You're helpful, friendly, and concise.";
       
-      // Call Gemini API - Updated to use gemini-2.0-flash model
+      // Call Gemini API - Using gemini-2.0-flash model for faster response
       const response = await fetch('https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=' + apiKey, {
         method: 'POST',
         headers: {
