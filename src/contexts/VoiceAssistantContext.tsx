@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 
@@ -485,8 +484,8 @@ export const VoiceAssistantProvider: React.FC<{ children: React.ReactNode }> = (
       // Get custom context from local storage
       const customContext = localStorage.getItem('dashCustomContext') || "You are Dash, an intelligent AI assistant. You're helpful, friendly, and concise.";
       
-      // Call Gemini API
-      const response = await fetch('https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=' + apiKey, {
+      // Call Gemini API - Updated to use gemini-2.0-flash model
+      const response = await fetch('https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=' + apiKey, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
