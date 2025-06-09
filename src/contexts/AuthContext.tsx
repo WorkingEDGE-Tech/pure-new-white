@@ -46,6 +46,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(true);
 
+  const fetchProfileWithTimeout = async (userId: string): Promise<{ profile: UserProfile | null, classes: ClassAssignment[] }> => {
+    console.log('Starting profile fetch with timeout for user:', userId);
+    
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Profile fetch timeout')), 10000); // 10 second timeout
+    });
+
+    const fetchPromise = Promise.all([
+      authService.getCurrentUserProfile(),
+      authService.getUserAssignedClasses()
+    ]).then(([profile, classes]) => ({ profile, classes }));
+
+    return Promise.race([fetchPromise, timeoutPromise]) as Promise<{ profile: UserProfile | null, classes: ClassAssignment[] }>;
+  };
+
   const refreshProfile = async () => {
     if (!user) {
       console.log('No user found, skipping profile refresh');
@@ -56,15 +71,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfileLoading(true);
     try {
       console.log('Refreshing profile for user:', user.id);
-      const [userProfile, classes] = await Promise.all([
-        authService.getCurrentUserProfile(),
-        authService.getUserAssignedClasses()
-      ]);
+      const { profile: userProfile, classes } = await fetchProfileWithTimeout(user.id);
       console.log('Profile refreshed successfully:', userProfile);
       setProfile(userProfile);
       setAssignedClasses(classes);
     } catch (error) {
       console.error('Error refreshing profile:', error);
+      setProfile(null);
+      setAssignedClasses([]);
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  const loadUserProfile = async (currentUser: User) => {
+    setProfileLoading(true);
+    try {
+      console.log('Loading profile for user:', currentUser.id);
+      const { profile: userProfile, classes } = await fetchProfileWithTimeout(currentUser.id);
+      console.log('Profile loaded successfully:', userProfile);
+      setProfile(userProfile);
+      setAssignedClasses(classes);
+    } catch (error) {
+      console.error('Error loading profile:', error);
+      // Set default profile data to prevent infinite loading
       setProfile(null);
       setAssignedClasses([]);
     } finally {
@@ -87,31 +117,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
         
         if (session?.user) {
-          // Fetch profile when user is authenticated
-          setProfileLoading(true);
-          try {
-            console.log('Fetching profile for user:', session.user.id);
-            const [userProfile, classes] = await Promise.all([
-              authService.getCurrentUserProfile(),
-              authService.getUserAssignedClasses()
-            ]);
-            
-            if (isMounted) {
-              console.log('Profile fetched:', userProfile);
-              setProfile(userProfile);
-              setAssignedClasses(classes);
-            }
-          } catch (error) {
-            console.error('Error fetching profile on auth change:', error);
-            if (isMounted) {
-              setProfile(null);
-              setAssignedClasses([]);
-            }
-          } finally {
-            if (isMounted) {
-              setProfileLoading(false);
-            }
-          }
+          // Load profile when user is authenticated
+          await loadUserProfile(session.user);
         } else {
           setProfile(null);
           setAssignedClasses([]);
@@ -123,7 +130,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Check for existing session on mount
     const initializeAuth = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        console.log('Initializing auth...');
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Error getting session:', error);
+          throw error;
+        }
+
         console.log('Initial session check:', session?.user?.email);
         
         if (!isMounted) return;
@@ -133,29 +147,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
         
         if (session?.user) {
-          setProfileLoading(true);
-          try {
-            const [userProfile, classes] = await Promise.all([
-              authService.getCurrentUserProfile(),
-              authService.getUserAssignedClasses()
-            ]);
-            
-            if (isMounted) {
-              console.log('Initial profile loaded:', userProfile);
-              setProfile(userProfile);
-              setAssignedClasses(classes);
-            }
-          } catch (error) {
-            console.error('Error loading initial profile:', error);
-            if (isMounted) {
-              setProfile(null);
-              setAssignedClasses([]);
-            }
-          } finally {
-            if (isMounted) {
-              setProfileLoading(false);
-            }
-          }
+          await loadUserProfile(session.user);
         } else {
           setProfileLoading(false);
         }
@@ -164,6 +156,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (isMounted) {
           setLoading(false);
           setProfileLoading(false);
+          // Force sign out on error to prevent infinite loading
+          setUser(null);
+          setSession(null);
+          setProfile(null);
+          setAssignedClasses([]);
         }
       }
     };
@@ -186,6 +183,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
+    console.log('Signing out...');
     await authService.signOut();
     setUser(null);
     setSession(null);
