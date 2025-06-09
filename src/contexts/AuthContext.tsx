@@ -10,6 +10,7 @@ interface AuthContextType {
   profile: UserProfile | null;
   assignedClasses: ClassAssignment[];
   loading: boolean;
+  profileLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   isAdmin: () => boolean;
@@ -22,6 +23,7 @@ const AuthContext = createContext<AuthContextType>({
   profile: null,
   assignedClasses: [],
   loading: true,
+  profileLoading: true,
   signIn: async () => ({ error: null }),
   signOut: async () => {},
   isAdmin: () => false,
@@ -42,13 +44,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [assignedClasses, setAssignedClasses] = useState<ClassAssignment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   const refreshProfile = async () => {
     if (!user) {
       console.log('No user found, skipping profile refresh');
+      setProfileLoading(false);
       return;
     }
     
+    setProfileLoading(true);
     try {
       console.log('Refreshing profile for user:', user.id);
       const [userProfile, classes] = await Promise.all([
@@ -60,57 +65,115 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setAssignedClasses(classes);
     } catch (error) {
       console.error('Error refreshing profile:', error);
-      // Set profile to null on error to prevent stale data
       setProfile(null);
       setAssignedClasses([]);
+    } finally {
+      setProfileLoading(false);
     }
   };
 
   useEffect(() => {
+    let isMounted = true;
+
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('Auth state changed:', event, session?.user?.email);
+        
+        if (!isMounted) return;
+        
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
         
         if (session?.user) {
-          // Immediately try to refresh profile when user is set
+          // Fetch profile when user is authenticated
+          setProfileLoading(true);
           try {
             console.log('Fetching profile for user:', session.user.id);
             const [userProfile, classes] = await Promise.all([
               authService.getCurrentUserProfile(),
               authService.getUserAssignedClasses()
             ]);
-            console.log('Profile fetched:', userProfile);
-            setProfile(userProfile);
-            setAssignedClasses(classes);
+            
+            if (isMounted) {
+              console.log('Profile fetched:', userProfile);
+              setProfile(userProfile);
+              setAssignedClasses(classes);
+            }
           } catch (error) {
             console.error('Error fetching profile on auth change:', error);
-            setProfile(null);
-            setAssignedClasses([]);
+            if (isMounted) {
+              setProfile(null);
+              setAssignedClasses([]);
+            }
+          } finally {
+            if (isMounted) {
+              setProfileLoading(false);
+            }
           }
         } else {
           setProfile(null);
           setAssignedClasses([]);
+          setProfileLoading(false);
         }
       }
     );
 
-    // Check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log('Initial session check:', session?.user?.email);
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-      
-      if (session?.user) {
-        refreshProfile();
+    // Check for existing session on mount
+    const initializeAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        console.log('Initial session check:', session?.user?.email);
+        
+        if (!isMounted) return;
+        
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+        
+        if (session?.user) {
+          setProfileLoading(true);
+          try {
+            const [userProfile, classes] = await Promise.all([
+              authService.getCurrentUserProfile(),
+              authService.getUserAssignedClasses()
+            ]);
+            
+            if (isMounted) {
+              console.log('Initial profile loaded:', userProfile);
+              setProfile(userProfile);
+              setAssignedClasses(classes);
+            }
+          } catch (error) {
+            console.error('Error loading initial profile:', error);
+            if (isMounted) {
+              setProfile(null);
+              setAssignedClasses([]);
+            }
+          } finally {
+            if (isMounted) {
+              setProfileLoading(false);
+            }
+          }
+        } else {
+          setProfileLoading(false);
+        }
+      } catch (error) {
+        console.error('Error initializing auth:', error);
+        if (isMounted) {
+          setLoading(false);
+          setProfileLoading(false);
+        }
       }
-    });
+    };
 
-    return () => subscription.unsubscribe();
+    initializeAuth();
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
@@ -128,6 +191,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSession(null);
     setProfile(null);
     setAssignedClasses([]);
+    setProfileLoading(false);
   };
 
   const isAdmin = () => {
@@ -143,6 +207,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     profile,
     assignedClasses,
     loading,
+    profileLoading,
     signIn,
     signOut,
     isAdmin,

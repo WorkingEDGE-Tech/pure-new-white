@@ -8,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, loading, profileLoading } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -17,7 +17,8 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     }
   }, [user, loading, navigate]);
 
-  if (loading) {
+  // Show loading while auth or profile is loading
+  if (loading || profileLoading) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
         <div className="text-center">
