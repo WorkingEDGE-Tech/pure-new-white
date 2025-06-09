@@ -1,4 +1,3 @@
-
 import { supabase } from '@/integrations/supabase/client';
 
 export interface UserProfile {
@@ -85,32 +84,14 @@ export const adminService = {
     last_name: string;
     role: 'admin' | 'teacher' | 'staff';
   }) {
-    // Instead of using admin API directly, we'll create the profile record
-    // and let the user sign up normally, then update their profile
     try {
-      // First, create the profile record with the user data
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .insert({
-          email: userData.email,
-          first_name: userData.first_name,
-          last_name: userData.last_name,
-          role: userData.role,
-          is_active: true
-        })
-        .select()
-        .single();
-
-      if (profileError) throw profileError;
-
-      // Return success - in a real implementation, you'd send an invitation email
-      // or have a different flow for user creation
+      // In a real implementation, this would require server-side functionality
+      // For now, we'll return a helpful message explaining the limitation
       return { 
-        data: { 
-          user: profile,
-          message: 'User profile created. They can now sign up with their email.'
-        }, 
-        error: null 
+        data: null, 
+        error: { 
+          message: 'User creation requires server-side implementation with Supabase Admin API. Please use the Supabase dashboard to create users, then update their profiles here.' 
+        } 
       };
     } catch (error) {
       return { 
