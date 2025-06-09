@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { adminService, UserProfile, ClassAssignment } from '@/services/auth';
@@ -29,8 +28,8 @@ export const AdminPortal = () => {
 
   // Create user form state
   const [newUser, setNewUser] = useState({
+    userId: '',
     email: '',
-    password: '',
     first_name: '',
     last_name: '',
     role: 'teacher' as 'admin' | 'teacher' | 'staff'
@@ -67,17 +66,23 @@ export const AdminPortal = () => {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const { error } = await adminService.createUser(newUser);
+      const { error } = await adminService.createUserProfile(newUser.userId, {
+        email: newUser.email,
+        first_name: newUser.first_name,
+        last_name: newUser.last_name,
+        role: newUser.role
+      });
+      
       if (error) throw error;
 
       toast({
         title: 'Success',
-        description: 'User created successfully'
+        description: 'User profile created successfully'
       });
 
       setNewUser({
+        userId: '',
         email: '',
-        password: '',
         first_name: '',
         last_name: '',
         role: 'teacher'
@@ -87,7 +92,7 @@ export const AdminPortal = () => {
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: error.message || 'Failed to create user',
+        description: error.message || 'Failed to create user profile',
         variant: 'destructive'
       });
     }
@@ -171,14 +176,27 @@ export const AdminPortal = () => {
           <DialogTrigger asChild>
             <Button>
               <UserPlus className="w-4 h-4 mr-2" />
-              Create User
+              Create User Profile
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create New User</DialogTitle>
+              <DialogTitle>Create User Profile</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleCreateUser} className="space-y-4">
+              <div>
+                <Label htmlFor="userId">User ID</Label>
+                <Input
+                  id="userId"
+                  placeholder="Enter the Supabase Auth User ID"
+                  value={newUser.userId}
+                  onChange={(e) => setNewUser({...newUser, userId: e.target.value})}
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  The user must already exist in Supabase Auth. Get the ID from the Supabase dashboard.
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="first_name">First Name</Label>
@@ -210,16 +228,6 @@ export const AdminPortal = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={newUser.password}
-                  onChange={(e) => setNewUser({...newUser, password: e.target.value})}
-                  required
-                />
-              </div>
-              <div>
                 <Label htmlFor="role">Role</Label>
                 <Select value={newUser.role} onValueChange={(value: any) => setNewUser({...newUser, role: value})}>
                   <SelectTrigger>
@@ -232,7 +240,7 @@ export const AdminPortal = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <Button type="submit" className="w-full">Create User</Button>
+              <Button type="submit" className="w-full">Create User Profile</Button>
             </form>
           </DialogContent>
         </Dialog>
