@@ -1,4 +1,3 @@
-
 import { supabase } from '@/integrations/supabase/client';
 
 export interface UserProfile {
@@ -93,19 +92,18 @@ export const adminService = {
     return data || [];
   },
 
-  async createUser(userData: {
+  async createUserProfile(userId: string, userData: {
     email: string;
-    password: string;
     first_name: string;
     last_name: string;
     role: 'admin' | 'teacher' | 'staff';
   }) {
     try {
-      // Create a profile entry directly in the profiles table
-      // Note: This requires the user to be created in Supabase Auth first
+      // Create a profile entry for an existing auth user
       const { data, error } = await supabase
         .from('profiles')
         .insert({
+          id: userId,
           email: userData.email,
           first_name: userData.first_name,
           last_name: userData.last_name,
@@ -120,7 +118,7 @@ export const adminService = {
           return { 
             data: null, 
             error: { 
-              message: 'A user with this email already exists. Please use the Supabase dashboard to create the auth user first, then try again.' 
+              message: 'A profile for this user already exists.' 
             } 
           };
         }
@@ -132,7 +130,7 @@ export const adminService = {
       return { 
         data: null, 
         error: { 
-          message: error.message || 'Failed to create user profile. Ensure the user exists in Supabase Auth first.' 
+          message: error.message || 'Failed to create user profile.' 
         } 
       };
     }
