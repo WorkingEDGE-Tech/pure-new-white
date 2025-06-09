@@ -1,3 +1,4 @@
+
 import { supabase } from '@/integrations/supabase/client';
 
 export interface UserProfile {
@@ -42,13 +43,28 @@ export const authService = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
-    const { data, error } = await supabase
+    // Try to fetch by user ID first, then by email as fallback
+    let { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', user.id)
       .single();
 
-    if (error) throw error;
+    // If no profile found by ID, try by email
+    if (error && error.code === 'PGRST116') {
+      console.log('Profile not found by ID, trying by email:', user.email);
+      const { data: emailData, error: emailError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('email', user.email)
+        .single();
+      
+      if (emailError) throw emailError;
+      data = emailData;
+    } else if (error) {
+      throw error;
+    }
+
     return data;
   },
 
@@ -85,19 +101,38 @@ export const adminService = {
     role: 'admin' | 'teacher' | 'staff';
   }) {
     try {
-      // In a real implementation, this would require server-side functionality
-      // For now, we'll return a helpful message explaining the limitation
+      // Create a profile entry directly in the profiles table
+      // Note: This requires the user to be created in Supabase Auth first
+      const { data, error } = await supabase
+        .from('profiles')
+        .insert({
+          email: userData.email,
+          first_name: userData.first_name,
+          last_name: userData.last_name,
+          role: userData.role,
+          is_active: true
+        })
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === '23505') {
+          return { 
+            data: null, 
+            error: { 
+              message: 'A user with this email already exists. Please use the Supabase dashboard to create the auth user first, then try again.' 
+            } 
+          };
+        }
+        throw error;
+      }
+
+      return { data, error: null };
+    } catch (error: any) {
       return { 
         data: null, 
         error: { 
-          message: 'User creation requires server-side implementation with Supabase Admin API. Please use the Supabase dashboard to create users, then update their profiles here.' 
-        } 
-      };
-    } catch (error) {
-      return { 
-        data: null, 
-        error: { 
-          message: 'Unable to create user. This feature requires additional server-side setup.' 
+          message: error.message || 'Failed to create user profile. Ensure the user exists in Supabase Auth first.' 
         } 
       };
     }

@@ -19,28 +19,37 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     }
   }, [user, loading, navigate]);
 
-  // Force show content after maximum loading time to prevent infinite loading
+  // Reduced maximum loading time and better handling
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (loading || profileLoading) {
         console.warn('Maximum loading time exceeded, forcing content display');
         setForceShow(true);
       }
-    }, 15000); // 15 second maximum loading time
+    }, 10000); // Reduced to 10 seconds
 
     return () => clearTimeout(timeout);
   }, [loading, profileLoading]);
 
-  // Show loading while auth or profile is loading (unless forced)
-  if ((loading || profileLoading) && !forceShow) {
+  // Show loading while auth is loading (unless forced or user is already loaded)
+  if (loading && !forceShow) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p>Loading...</p>
-          <p className="text-sm text-gray-500 mt-2">
-            {loading ? 'Authenticating...' : 'Loading profile...'}
-          </p>
+          <p>Authenticating...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show profile loading only if user exists but profile is still loading
+  if (user && profileLoading && !forceShow) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p>Loading profile...</p>
         </div>
       </div>
     );
