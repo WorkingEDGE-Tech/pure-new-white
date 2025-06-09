@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { adminService, UserProfile, ClassAssignment } from '@/services/auth';
@@ -9,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Users, UserPlus, Settings, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
@@ -29,8 +28,8 @@ export const AdminPortal = () => {
 
   // Create user form state
   const [newUser, setNewUser] = useState({
+    userId: '',
     email: '',
-    password: '',
     first_name: '',
     last_name: '',
     role: 'teacher' as 'admin' | 'teacher' | 'staff'
@@ -67,20 +66,23 @@ export const AdminPortal = () => {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      console.log('Creating new user:', { ...newUser, password: '[REDACTED]' });
+      const { error } = await adminService.createUserProfile(newUser.userId, {
+        email: newUser.email,
+        first_name: newUser.first_name,
+        last_name: newUser.last_name,
+        role: newUser.role
+      });
       
-      const { data, error } = await adminService.createCompleteUser(newUser);
-      
-      if (error) throw new Error(error.message);
+      if (error) throw error;
 
       toast({
         title: 'Success',
-        description: 'User and profile created successfully'
+        description: 'User profile created successfully'
       });
 
       setNewUser({
+        userId: '',
         email: '',
-        password: '',
         first_name: '',
         last_name: '',
         role: 'teacher'
@@ -88,10 +90,9 @@ export const AdminPortal = () => {
       setCreateUserOpen(false);
       fetchUsers();
     } catch (error: any) {
-      console.error('User creation failed:', error);
       toast({
         title: 'Error',
-        description: error.message || 'Failed to create user',
+        description: error.message || 'Failed to create user profile',
         variant: 'destructive'
       });
     }
@@ -103,11 +104,6 @@ export const AdminPortal = () => {
       setUserAssignments(assignments);
     } catch (error) {
       console.error('Error fetching assignments:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch user assignments',
-        variant: 'destructive'
-      });
     }
   };
 
@@ -130,7 +126,6 @@ export const AdminPortal = () => {
       setNewAssignment({ class: '', section: '' });
       fetchUserAssignments(selectedUser.id);
     } catch (error: any) {
-      console.error('Class assignment failed:', error);
       toast({
         title: 'Error',
         description: error.message || 'Failed to assign class',
@@ -181,17 +176,27 @@ export const AdminPortal = () => {
           <DialogTrigger asChild>
             <Button>
               <UserPlus className="w-4 h-4 mr-2" />
-              Create New User
+              Create User Profile
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Create New User</DialogTitle>
-              <DialogDescription>
-                Create a new user account with authentication and profile information.
-              </DialogDescription>
+              <DialogTitle>Create User Profile</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleCreateUser} className="space-y-4">
+              <div>
+                <Label htmlFor="userId">User ID</Label>
+                <Input
+                  id="userId"
+                  placeholder="Enter the Supabase Auth User ID"
+                  value={newUser.userId}
+                  onChange={(e) => setNewUser({...newUser, userId: e.target.value})}
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  The user must already exist in Supabase Auth. Get the ID from the Supabase dashboard.
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="first_name">First Name</Label>
@@ -223,20 +228,6 @@ export const AdminPortal = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={newUser.password}
-                  onChange={(e) => setNewUser({...newUser, password: e.target.value})}
-                  required
-                  minLength={6}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Password must be at least 6 characters long.
-                </p>
-              </div>
-              <div>
                 <Label htmlFor="role">Role</Label>
                 <Select value={newUser.role} onValueChange={(value: any) => setNewUser({...newUser, role: value})}>
                   <SelectTrigger>
@@ -249,7 +240,7 @@ export const AdminPortal = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <Button type="submit" className="w-full">Create User</Button>
+              <Button type="submit" className="w-full">Create User Profile</Button>
             </form>
           </DialogContent>
         </Dialog>
@@ -324,9 +315,6 @@ export const AdminPortal = () => {
             <DialogTitle>
               Manage Classes for {selectedUser?.first_name} {selectedUser?.last_name}
             </DialogTitle>
-            <DialogDescription>
-              View current class assignments and assign new classes to this user.
-            </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-6">
