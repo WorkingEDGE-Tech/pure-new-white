@@ -8,6 +8,7 @@ import { ArrowLeft, Save, Users } from 'lucide-react';
 import { studentService, examService, gradeService } from '@/services/database';
 import { useToast } from '@/hooks/use-toast';
 import { useActivityTracker } from '@/hooks/useActivityTracker';
+import { useClassRestrictions } from '@/hooks/useClassRestrictions';
 
 const SECTIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
 const CLASSES = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
@@ -18,6 +19,7 @@ interface GradeEntryFormProps {
 
 export const GradeEntryForm = ({ onBack }: GradeEntryFormProps) => {
   const { trackActivity } = useActivityTracker();
+  const { getAvailableClasses, getAvailableSections, canAccessClass, isRestricted } = useClassRestrictions();
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
   const [selectedExam, setSelectedExam] = useState('');
@@ -27,6 +29,8 @@ export const GradeEntryForm = ({ onBack }: GradeEntryFormProps) => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
+
+  const availableClasses = getAvailableClasses();
 
   useEffect(() => {
     loadExams();
@@ -47,7 +51,9 @@ export const GradeEntryForm = ({ onBack }: GradeEntryFormProps) => {
   const loadExams = async () => {
     try {
       const data = await examService.getAll();
-      setExams(data || []);
+      // Filter exams based on user's class assignments
+      const filteredExams = data.filter((exam: any) => canAccessClass(exam.class, exam.section));
+      setExams(filteredExams || []);
     } catch (error) {
       console.error('Error loading exams:', error);
       toast({
@@ -61,6 +67,15 @@ export const GradeEntryForm = ({ onBack }: GradeEntryFormProps) => {
   const loadStudents = async () => {
     try {
       setLoading(true);
+      if (!canAccessClass(selectedClass, selectedSection)) {
+        toast({
+          title: "Access Denied",
+          description: "You don't have access to this class/section",
+          variant: "destructive",
+        });
+        setStudents([]);
+        return;
+      }
       const data = await studentService.getByClass(selectedClass, selectedSection);
       setStudents(data || []);
     } catch (error) {
@@ -181,6 +196,8 @@ export const GradeEntryForm = ({ onBack }: GradeEntryFormProps) => {
     (exam.class === selectedClass && exam.section === selectedSection)
   );
 
+  const availableSections = getAvailableSections(selectedClass);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -193,6 +210,11 @@ export const GradeEntryForm = ({ onBack }: GradeEntryFormProps) => {
             <Users className="w-3 h-3 mr-1" />
             {students.length} Students
           </Badge>
+          {isRestricted && (
+            <Badge variant="secondary">
+              Limited Access
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -208,7 +230,7 @@ export const GradeEntryForm = ({ onBack }: GradeEntryFormProps) => {
                 <SelectValue placeholder="Select Class" />
               </SelectTrigger>
               <SelectContent>
-                {CLASSES.map(cls => (
+                {availableClasses.map(cls => (
                   <SelectItem key={cls} value={cls}>Class {cls}</SelectItem>
                 ))}
               </SelectContent>
@@ -219,7 +241,7 @@ export const GradeEntryForm = ({ onBack }: GradeEntryFormProps) => {
                 <SelectValue placeholder="Select Section" />
               </SelectTrigger>
               <SelectContent>
-                {SECTIONS.map(section => (
+                {availableSections.map(section => (
                   <SelectItem key={section} value={section}>Section {section}</SelectItem>
                 ))}
               </SelectContent>
@@ -324,7 +346,12 @@ export const GradeEntryForm = ({ onBack }: GradeEntryFormProps) => {
             ) : (
               <div className="text-center py-8">
                 <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600 dark:text-gray-400">No students found for the selected class and section</p>
+                <p className="text-gray-600 dark:text-gray-400">
+                  {!canAccessClass(selectedClass, selectedSection) 
+                    ? "You don't have access to this class/section"
+                    : "No students found for the selected class and section"
+                  }
+                </p>
               </div>
             )}
           </CardContent>

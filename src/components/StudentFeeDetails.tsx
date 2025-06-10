@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { format } from 'date-fns';
+import { useClassRestrictions } from '@/hooks/useClassRestrictions';
 
 interface StudentFeeDetailsProps {
   studentId: string;
@@ -23,6 +24,7 @@ interface StudentFeeDetailsProps {
 
 export const StudentFeeDetails = ({ studentId, studentName, onRecordPayment }: StudentFeeDetailsProps) => {
   const [filter, setFilter] = useState<'all' | 'pending' | 'paid'>('all');
+  const { isRestricted } = useClassRestrictions();
 
   const { data: fees = [], isLoading } = useQuery({
     queryKey: ['studentFees', studentId],
@@ -66,7 +68,14 @@ export const StudentFeeDetails = ({ studentId, studentName, onRecordPayment }: S
     <Card>
       <CardHeader>
         <CardTitle className="flex justify-between items-center">
-          <div>Fee Details for {studentName}</div>
+          <div className="flex items-center space-x-2">
+            <span>Fee Details for {studentName}</span>
+            {isRestricted && (
+              <Badge variant="secondary" className="text-xs">
+                Limited Access
+              </Badge>
+            )}
+          </div>
           <div className="flex space-x-2">
             <Button 
               size="sm" 

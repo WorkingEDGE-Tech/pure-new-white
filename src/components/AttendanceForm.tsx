@@ -10,39 +10,43 @@ import { UserCheck, UserX, Clock, AlertCircle } from 'lucide-react';
 import { studentService, attendanceService } from '@/services/database';
 import { useToast } from '@/hooks/use-toast';
 import { useActivityTracker } from '@/hooks/useActivityTracker';
+import { useClassRestrictions } from '@/hooks/useClassRestrictions';
 
 export const AttendanceForm = ({ onBack }: { onBack?: () => void }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
   const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
-  const {
-    toast
-  } = useToast();
+  const { toast } = useToast();
   const queryClient = useQueryClient();
-  const {
-    data: students = []
-  } = useQuery({
+  const { trackActivity } = useActivityTracker();
+  const { getAvailableClasses, getAvailableSections, canAccessClass, isRestricted } = useClassRestrictions();
+
+  const availableClasses = getAvailableClasses();
+  const availableSections = getAvailableSections(selectedClass);
+
+  const { data: students = [] } = useQuery({
     queryKey: ['students', selectedClass, selectedSection],
-    queryFn: () => selectedClass && selectedSection ? studentService.getByClass(selectedClass, selectedSection) : [],
+    queryFn: () => {
+      if (selectedClass && selectedSection && canAccessClass(selectedClass, selectedSection)) {
+        return studentService.getByClass(selectedClass, selectedSection);
+      }
+      return [];
+    },
     enabled: !!(selectedClass && selectedSection)
   });
-  const {
-    data: existingAttendance = []
-  } = useQuery({
+
+  const { data: existingAttendance = [] } = useQuery({
     queryKey: ['attendance', selectedDate, selectedClass, selectedSection],
     queryFn: () => attendanceService.getByDateAndClass(selectedDate, selectedClass, selectedSection),
-    enabled: !!(selectedDate && selectedClass && selectedSection)
+    enabled: !!(selectedDate && selectedClass && selectedSection && canAccessClass(selectedClass, selectedSection))
   });
-  const { trackActivity } = useActivityTracker();
+
   const markAttendanceMutation = useMutation({
     mutationFn: attendanceService.markAttendance,
     onSuccess: async () => {
-      queryClient.invalidateQueries({
-        queryKey: ['attendance']
-      });
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
       
-      // Track activity
       await trackActivity(
         'Attendance Marked',
         `Attendance marked for Class ${selectedClass}-${selectedSection} on ${selectedDate}`,
@@ -66,6 +70,7 @@ export const AttendanceForm = ({ onBack }: { onBack?: () => void }) => {
       });
     }
   });
+
   useEffect(() => {
     if (students.length > 0) {
       const records = students.map((student: any) => {
@@ -80,13 +85,25 @@ export const AttendanceForm = ({ onBack }: { onBack?: () => void }) => {
       setAttendanceRecords(records);
     }
   }, [students, existingAttendance, selectedDate]);
+
   const updateAttendanceRecord = (studentId: string, field: string, value: string) => {
-    setAttendanceRecords(prev => prev.map(record => record.student_id === studentId ? {
-      ...record,
-      [field]: value
-    } : record));
+    setAttendanceRecords(prev => prev.map(record => 
+      record.student_id === studentId 
+        ? { ...record, [field]: value }
+        : record
+    ));
   };
+
   const handleSubmit = () => {
+    if (!canAccessClass(selectedClass, selectedSection)) {
+      toast({
+        title: "Access Denied",
+        description: "You don't have access to this class/section",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (attendanceRecords.length === 0) {
       toast({
         title: "Error",
@@ -97,6 +114,7 @@ export const AttendanceForm = ({ onBack }: { onBack?: () => void }) => {
     }
     markAttendanceMutation.mutate(attendanceRecords);
   };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'present':
@@ -111,6 +129,7 @@ export const AttendanceForm = ({ onBack }: { onBack?: () => void }) => {
         return <UserCheck className="w-4 h-4 text-gray-600" />;
     }
   };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'present':
@@ -126,13 +145,18 @@ export const AttendanceForm = ({ onBack }: { onBack?: () => void }) => {
     }
   };
 
-  // Define valid classes and sections with proper validation
-  const classes = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
-  const sections = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
-  return <div className="space-y-4 md:space-y-6 animate-fade-in">
+  return (
+    <div className="space-y-4 md:space-y-6 animate-fade-in">
       <Card className="transition-all duration-200">
         <CardHeader>
-          <CardTitle className="text-lg md:text-xl">Mark Attendance</CardTitle>
+          <CardTitle className="text-lg md:text-xl">
+            Mark Attendance
+            {isRestricted && (
+              <span className="block text-sm text-blue-600 dark:text-blue-400 mt-1 font-normal">
+                • Access limited to your assigned classes
+              </span>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -147,9 +171,11 @@ export const AttendanceForm = ({ onBack }: { onBack?: () => void }) => {
                   <SelectValue placeholder="Select class" />
                 </SelectTrigger>
                 <SelectContent>
-                  {classes.map(cls => <SelectItem key={cls} value={cls}>
+                  {availableClasses.map(cls => (
+                    <SelectItem key={cls} value={cls}>
                       Grade {cls}
-                    </SelectItem>)}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -160,9 +186,11 @@ export const AttendanceForm = ({ onBack }: { onBack?: () => void }) => {
                   <SelectValue placeholder="Select section" />
                 </SelectTrigger>
                 <SelectContent>
-                  {sections.map(section => <SelectItem key={section} value={section}>
+                  {availableSections.map(section => (
+                    <SelectItem key={section} value={section}>
                       {section}
-                    </SelectItem>)}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -170,7 +198,8 @@ export const AttendanceForm = ({ onBack }: { onBack?: () => void }) => {
         </CardContent>
       </Card>
 
-      {selectedClass && selectedSection && students.length > 0 && <Card className="animate-scale-in">
+      {selectedClass && selectedSection && students.length > 0 && canAccessClass(selectedClass, selectedSection) && (
+        <Card className="animate-scale-in">
           <CardHeader>
             <CardTitle className="text-base md:text-lg">
               Attendance for Class {selectedClass} - {selectedSection} - {new Date(selectedDate).toLocaleDateString()}
@@ -179,8 +208,9 @@ export const AttendanceForm = ({ onBack }: { onBack?: () => void }) => {
           <CardContent>
             <div className="space-y-2 md:space-y-3">
               {students.map((student: any, index: number) => {
-            const record = attendanceRecords.find(r => r.student_id === student.id);
-            return <div key={student.id} className="flex flex-col md:flex-row md:items-center justify-between p-3 border rounded-lg space-y-3 md:space-y-0 transition-all duration-200 ">
+                const record = attendanceRecords.find(r => r.student_id === student.id);
+                return (
+                  <div key={student.id} className="flex flex-col md:flex-row md:items-center justify-between p-3 border rounded-lg space-y-3 md:space-y-0 transition-all duration-200">
                     <div className="flex items-center space-x-3">
                       <span className="w-6 md:w-8 text-sm text-gray-500 font-medium">{index + 1}</span>
                       <div className="min-w-0">
@@ -191,16 +221,26 @@ export const AttendanceForm = ({ onBack }: { onBack?: () => void }) => {
                     
                     <div className="flex flex-col md:flex-row md:items-center space-y-3 md:space-y-0 md:space-x-4">
                       <div className="flex justify-center md:justify-start space-x-1 md:space-x-2">
-                        {['present', 'absent', 'late', 'excused'].map(status => <button key={status} onClick={() => updateAttendanceRecord(student.id, 'status', status)} className={`p-2 rounded-lg border transition-all duration-200 hover:scale-110 ${record?.status === status ? getStatusColor(status) : 'bg-gray-50 hover:bg-gray-100'}`} title={status.charAt(0).toUpperCase() + status.slice(1)}>
+                        {['present', 'absent', 'late', 'excused'].map(status => (
+                          <button 
+                            key={status} 
+                            onClick={() => updateAttendanceRecord(student.id, 'status', status)} 
+                            className={`p-2 rounded-lg border transition-all duration-200 hover:scale-110 ${
+                              record?.status === status ? getStatusColor(status) : 'bg-gray-50 hover:bg-gray-100'
+                            }`} 
+                            title={status.charAt(0).toUpperCase() + status.slice(1)}
+                          >
                             {getStatusIcon(status)}
-                          </button>)}
+                          </button>
+                        ))}
                       </div>
                       <Badge className={`${getStatusColor(record?.status || 'present')} text-xs md:text-sm self-center md:self-auto`}>
                         {record?.status || 'present'}
                       </Badge>
                     </div>
-                  </div>;
-          })}
+                  </div>
+                );
+              })}
             </div>
             
             <div className="mt-6 flex justify-end">
@@ -209,14 +249,26 @@ export const AttendanceForm = ({ onBack }: { onBack?: () => void }) => {
               </Button>
             </div>
           </CardContent>
-        </Card>}
+        </Card>
+      )}
 
-      {selectedClass && selectedSection && students.length === 0 && <div className="text-center py-8 text-gray-500 animate-fade-in">
+      {selectedClass && selectedSection && students.length === 0 && canAccessClass(selectedClass, selectedSection) && (
+        <div className="text-center py-8 text-gray-500 animate-fade-in">
           No students found in the selected class and section.
-        </div>}
+        </div>
+      )}
 
-      {(!selectedClass || !selectedSection) && <div className="text-center py-8 text-gray-500 animate-fade-in">
+      {selectedClass && selectedSection && !canAccessClass(selectedClass, selectedSection) && (
+        <div className="text-center py-8 text-red-500 animate-fade-in">
+          You don't have access to this class and section.
+        </div>
+      )}
+
+      {(!selectedClass || !selectedSection) && (
+        <div className="text-center py-8 text-gray-500 animate-fade-in">
           Please select both class and section to view students.
-        </div>}
-    </div>;
+        </div>
+      )}
+    </div>
+  );
 };

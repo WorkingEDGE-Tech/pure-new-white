@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,6 +11,7 @@ import { ExamForm } from './ExamForm';
 import { EnhancedGradeEntryForm } from './EnhancedGradeEntryForm';
 import { examService } from '@/services/database';
 import { useToast } from '@/hooks/use-toast';
+import { useClassRestrictions } from '@/hooks/useClassRestrictions';
 
 export const GradesModule = () => {
   const [showExamForm, setShowExamForm] = useState(false);
@@ -22,6 +22,10 @@ export const GradesModule = () => {
   const [filterSection, setFilterSection] = useState('');
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { getAvailableClasses, getAvailableSections, canAccessClass, isRestricted } = useClassRestrictions();
+
+  const availableClasses = getAvailableClasses();
+  const availableSections = getAvailableSections(filterClass);
 
   const { data: exams = [], isLoading } = useQuery({
     queryKey: ['exams', filterClass, filterSection],
@@ -32,6 +36,11 @@ export const GradesModule = () => {
       return examService.getAll();
     },
   });
+
+  // Filter exams based on user's class assignments
+  const filteredExams = exams.filter(exam => 
+    canAccessClass(exam.class, exam.section)
+  );
 
   const createExamMutation = useMutation({
     mutationFn: examService.create,
@@ -129,22 +138,6 @@ export const GradesModule = () => {
     }
   };
 
-  const classes = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
-  
-  // Updated sections - only alphabets A-G
-  const getSectionsForClass = (selectedClass: string) => {
-    if (selectedClass === '11' || selectedClass === '12') {
-      return [
-        { value: 'A', label: 'A (Science)' },
-        { value: 'B', label: 'B (Commerce)' },
-        { value: 'C', label: 'C (Arts)' }
-      ];
-    }
-    return ['A', 'B', 'C', 'D', 'E', 'F', 'G'].map(section => ({ value: section, label: section }));
-  };
-
-  const availableSections = filterClass ? getSectionsForClass(filterClass) : [];
-
   if (showExamForm) {
     return (
       <div className="space-y-6">
@@ -177,7 +170,14 @@ export const GradesModule = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Grades & Exams</h1>
-          <p className="text-gray-600 dark:text-gray-300 mt-2">Manage exams and enter student grades with automatic subject mapping</p>
+          <p className="text-gray-600 dark:text-gray-300 mt-2">
+            Manage exams and enter student grades with automatic subject mapping
+            {isRestricted && (
+              <span className="block text-sm text-blue-600 dark:text-blue-400 mt-1">
+                • Access limited to your assigned classes
+              </span>
+            )}
+          </p>
         </div>
         <Button 
           className="flex items-center space-x-2"
@@ -202,7 +202,7 @@ export const GradesModule = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Classes</SelectItem>
-                    {classes.map((cls) => (
+                    {availableClasses.map((cls) => (
                       <SelectItem key={cls} value={cls}>
                         Grade {cls}
                       </SelectItem>
@@ -219,8 +219,8 @@ export const GradesModule = () => {
                   <SelectContent>
                     <SelectItem value="all">All Sections</SelectItem>
                     {availableSections.map((section) => (
-                      <SelectItem key={section.value} value={section.value}>
-                        {section.label}
+                      <SelectItem key={section} value={section}>
+                        {section}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -251,16 +251,18 @@ export const GradesModule = () => {
         <CardContent>
           {isLoading ? (
             <div className="text-center py-8">Loading exams...</div>
-          ) : exams.length === 0 ? (
+          ) : filteredExams.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               {filterClass || filterSection 
                 ? `No exams found for the selected class/section.`
-                : 'No exams created yet. Create your first exam to get started with automatic subject mapping.'
+                : isRestricted 
+                  ? 'No exams found for your assigned classes.'
+                  : 'No exams created yet. Create your first exam to get started with automatic subject mapping.'
               }
             </div>
           ) : (
             <div className="space-y-4">
-              {exams.map((exam: any) => (
+              {filteredExams.map((exam: any) => (
                 <div key={exam.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
                      onClick={() => handleEnterGrades(exam)}>
                   <div className="flex items-center space-x-4">
