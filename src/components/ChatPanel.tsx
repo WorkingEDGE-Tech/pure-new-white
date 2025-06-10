@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { X, Send, Hash, Users, ChevronDown, MessageSquare } from 'lucide-react';
 import { chatService } from '@/services/database';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { format } from 'date-fns';
 
 interface ChatPanelProps {
@@ -21,6 +21,7 @@ export const ChatPanel = ({ isOpen, onClose }: ChatPanelProps) => {
   const [isChannelListOpen, setIsChannelListOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const { profile } = useAuth();
 
   useEffect(() => {
     if (isOpen) {
@@ -69,12 +70,12 @@ export const ChatPanel = ({ isOpen, onClose }: ChatPanelProps) => {
   };
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || !activeChannel) return;
+    if (!newMessage.trim() || !activeChannel || !profile) return;
 
     try {
       const messageData = {
         channel_id: activeChannel,
-        user_name: 'User', // This will be replaced with actual user names when auth is implemented
+        user_name: profile.full_name || profile.email || 'Unknown User',
         message: newMessage.trim()
       };
 
