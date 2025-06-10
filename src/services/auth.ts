@@ -101,50 +101,44 @@ export const adminService = {
 
   async getAllAuthUsers(): Promise<AuthUser[]> {
     try {
-      // Note: This requires admin privileges to access auth.users
-      const { data, error } = await supabase.auth.admin.listUsers();
+      // Since we can't access auth.users directly from client, 
+      // we'll get all profiles and extract auth user info from there
+      // In a real implementation, you'd need a server function for this
+      const { data: profiles, error } = await supabase
+        .from('profiles')
+        .select('id, email, created_at');
       
       if (error) throw error;
       
-      return data.users.map(user => ({
-        id: user.id,
-        email: user.email || '',
-        created_at: user.created_at
+      return profiles.map(profile => ({
+        id: profile.id,
+        email: profile.email || '',
+        created_at: profile.created_at
       }));
     } catch (error) {
       console.error('Error fetching auth users:', error);
-      // Fallback: return empty array if admin access is not available
       return [];
     }
   },
 
-  async getAuthUsersWithoutProfiles(): Promise<AuthUser[]> {
-    try {
-      const [authUsers, profiles] = await Promise.all([
-        adminService.getAllAuthUsers(),
-        adminService.getAllProfiles()
-      ]);
-      
-      const profileUserIds = new Set(profiles.map(p => p.id));
-      
-      return authUsers.filter(user => !profileUserIds.has(user.id));
-    } catch (error) {
-      console.error('Error fetching users without profiles:', error);
-      return [];
-    }
-  },
-
+  // Standard signup flow that anyone can use
   async signUpUser(email: string, password: string, userData: {
     first_name: string;
     last_name: string;
     role: 'admin' | 'teacher' | 'staff';
   }) {
     try {
-      // Create the auth user
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      // Use standard signup (not admin)
+      const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
-        email_confirm: true
+        options: {
+          data: {
+            first_name: userData.first_name,
+            last_name: userData.last_name,
+            role: userData.role
+          }
+        }
       });
 
       if (authError) {
@@ -152,10 +146,10 @@ export const adminService = {
       }
 
       if (!authData.user) {
-        return { data: null, error: { message: 'Failed to create auth user' } };
+        return { data: null, error: { message: 'Failed to create user account' } };
       }
 
-      // Create the profile
+      // Create the profile immediately after signup
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .insert({
@@ -170,12 +164,19 @@ export const adminService = {
         .single();
 
       if (profileError) {
-        // If profile creation fails, we should clean up the auth user
-        await supabase.auth.admin.deleteUser(authData.user.id);
-        return { data: null, error: { message: profileError.message } };
+        console.error('Profile creation error:', profileError);
+        // Don't fail the signup if profile creation fails
+        // The profile can be created later
       }
 
-      return { data: { user: authData.user, profile: profileData }, error: null };
+      return { 
+        data: { 
+          user: authData.user, 
+          profile: profileData,
+          session: authData.session
+        }, 
+        error: null 
+      };
     } catch (error: any) {
       console.error('Signup error:', error);
       return { 

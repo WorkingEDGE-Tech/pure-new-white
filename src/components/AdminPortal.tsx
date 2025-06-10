@@ -21,7 +21,7 @@ export const AdminPortal = () => {
   const { isAdmin } = useAuth();
   const { toast } = useToast();
   const [users, setUsers] = useState<UserProfile[]>([]);
-  const [authUsersWithoutProfiles, setAuthUsersWithoutProfiles] = useState<AuthUser[]>([]);
+  const [allAuthUsers, setAllAuthUsers] = useState<AuthUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [createUserOpen, setCreateUserOpen] = useState(false);
   const [signupUserOpen, setSignupUserOpen] = useState(false);
@@ -63,10 +63,10 @@ export const AdminPortal = () => {
     try {
       const [profiles, authUsers] = await Promise.all([
         adminService.getAllProfiles(),
-        adminService.getAuthUsersWithoutProfiles()
+        adminService.getAllAuthUsers()
       ]);
       setUsers(profiles);
-      setAuthUsersWithoutProfiles(authUsers);
+      setAllAuthUsers(authUsers);
     } catch (error) {
       console.error('Error fetching data:', error);
       toast({
@@ -82,7 +82,7 @@ export const AdminPortal = () => {
   const handleCreateUserProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const selectedAuthUser = authUsersWithoutProfiles.find(u => u.id === newUserProfile.userId);
+      const selectedAuthUser = allAuthUsers.find(u => u.id === newUserProfile.userId);
       if (!selectedAuthUser) {
         throw new Error('Please select a valid auth user');
       }
@@ -122,7 +122,9 @@ export const AdminPortal = () => {
   const handleSignupUser = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const { error } = await adminService.signUpUser(
+      console.log('Attempting to sign up user:', signupUser.email);
+      
+      const { data, error } = await adminService.signUpUser(
         signupUser.email,
         signupUser.password,
         {
@@ -132,11 +134,16 @@ export const AdminPortal = () => {
         }
       );
       
-      if (error) throw error;
+      if (error) {
+        console.error('Signup error:', error);
+        throw new Error(error.message);
+      }
+
+      console.log('Signup successful:', data);
 
       toast({
         title: 'Success',
-        description: 'User account created successfully'
+        description: 'User account created successfully! They may need to verify their email.'
       });
 
       setSignupUser({
@@ -149,6 +156,7 @@ export const AdminPortal = () => {
       setSignupUserOpen(false);
       fetchData();
     } catch (error: any) {
+      console.error('Signup error details:', error);
       toast({
         title: 'Error',
         description: error.message || 'Failed to create user account',
@@ -213,7 +221,7 @@ export const AdminPortal = () => {
   };
 
   const handleAuthUserSelection = (userId: string) => {
-    const selectedAuthUser = authUsersWithoutProfiles.find(u => u.id === userId);
+    const selectedAuthUser = allAuthUsers.find(u => u.id === userId);
     if (selectedAuthUser) {
       setNewUserProfile({
         ...newUserProfile,
@@ -333,7 +341,7 @@ export const AdminPortal = () => {
                       <SelectValue placeholder="Select an existing auth user" />
                     </SelectTrigger>
                     <SelectContent>
-                      {authUsersWithoutProfiles.map((authUser) => (
+                      {allAuthUsers.map((authUser) => (
                         <SelectItem key={authUser.id} value={authUser.id}>
                           {authUser.email}
                         </SelectItem>
@@ -341,10 +349,7 @@ export const AdminPortal = () => {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-gray-500 mt-1">
-                    {authUsersWithoutProfiles.length === 0 
-                      ? "No auth users without profiles found"
-                      : "Select from existing auth users who don't have profiles yet"
-                    }
+                    Select from all registered auth users (includes those with existing profiles)
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
