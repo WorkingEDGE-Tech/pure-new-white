@@ -12,13 +12,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Users, UserPlus, Settings, Trash2, UserCheck, Edit } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-
 const CLASS_OPTIONS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
 const SECTION_OPTIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
-
 export const AdminPortal = () => {
-  const { isAdmin, profile } = useAuth();
-  const { toast } = useToast();
+  const {
+    isAdmin,
+    profile
+  } = useAuth();
+  const {
+    toast
+  } = useToast();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [allAuthUsers, setAllAuthUsers] = useState<AuthUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,7 +31,10 @@ export const AdminPortal = () => {
   const [editUserOpen, setEditUserOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [userAssignments, setUserAssignments] = useState<ClassAssignment[]>([]);
-  const [allAssignments, setAllAssignments] = useState<{user: UserProfile, assignments: ClassAssignment[]}[]>([]);
+  const [allAssignments, setAllAssignments] = useState<{
+    user: UserProfile;
+    assignments: ClassAssignment[];
+  }[]>([]);
 
   // Create user profile form state (for existing auth users)
   const [newUserProfile, setNewUserProfile] = useState({
@@ -61,7 +67,6 @@ export const AdminPortal = () => {
     role: 'teacher' as 'admin' | 'teacher' | 'staff',
     password: ''
   });
-
   useEffect(() => {
     if (isAdmin()) {
       fetchData();
@@ -69,20 +74,18 @@ export const AdminPortal = () => {
   }, [isAdmin]);
   const fetchData = async () => {
     try {
-      const [profiles, authUsers] = await Promise.all([
-        adminService.getAllProfiles(),
-        adminService.getAllAuthUsers()
-      ]);
+      const [profiles, authUsers] = await Promise.all([adminService.getAllProfiles(), adminService.getAllAuthUsers()]);
       setUsers(profiles);
       setAllAuthUsers(authUsers);
-      
+
       // Fetch all assignments for the assignments tab
-      const assignmentsData = await Promise.all(
-        profiles.map(async (user) => {
-          const assignments = await adminService.getUserClassAssignments(user.id);
-          return { user, assignments };
-        })
-      );
+      const assignmentsData = await Promise.all(profiles.map(async user => {
+        const assignments = await adminService.getUserClassAssignments(user.id);
+        return {
+          user,
+          assignments
+        };
+      }));
       setAllAssignments(assignmentsData);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -248,7 +251,6 @@ export const AdminPortal = () => {
   const handleUpdateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser || !profile) return;
-
     try {
       // Frontend validation - only admin can change roles
       if (editUserForm.role !== selectedUser.role && profile.role !== 'admin') {
@@ -261,23 +263,17 @@ export const AdminPortal = () => {
       }
 
       // Simulate user update (frontend only as requested)
-      const updatedUsers = users.map(user => 
-        user.id === selectedUser.id 
-          ? { 
-              ...user, 
-              first_name: editUserForm.first_name,
-              last_name: editUserForm.last_name,
-              role: editUserForm.role 
-            }
-          : user
-      );
+      const updatedUsers = users.map(user => user.id === selectedUser.id ? {
+        ...user,
+        first_name: editUserForm.first_name,
+        last_name: editUserForm.last_name,
+        role: editUserForm.role
+      } : user);
       setUsers(updatedUsers);
-
       toast({
         title: 'Success',
         description: 'User updated successfully (frontend only)'
       });
-      
       setEditUserOpen(false);
       setSelectedUser(null);
     } catch (error: any) {
@@ -369,10 +365,7 @@ export const AdminPortal = () => {
 
           <Dialog open={createUserOpen} onOpenChange={setCreateUserOpen}>
             <DialogTrigger asChild>
-              <Button>
-                <UserPlus className="w-4 h-4 mr-2" />
-                Create User Profile
-              </Button>
+              
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
@@ -470,17 +463,15 @@ export const AdminPortal = () => {
                         </Badge>
                       </div>
                       <div className="flex gap-2">
-                        {canEditUser(user) && (
-                          <Button variant="outline" onClick={() => handleEditUser(user)}>
+                        {canEditUser(user) && <Button variant="outline" onClick={() => handleEditUser(user)}>
                             <Edit className="w-4 h-4 mr-2" />
                             Edit Account
-                          </Button>
-                        )}
+                          </Button>}
                         <Button variant="outline" onClick={() => {
-                          setSelectedUser(user);
-                          fetchUserAssignments(user.id);
-                          setAssignClassOpen(true);
-                        }}>
+                    setSelectedUser(user);
+                    fetchUserAssignments(user.id);
+                    setAssignClassOpen(true);
+                  }}>
                           <Settings className="w-4 h-4 mr-2" />
                           Manage Classes
                         </Button>
@@ -497,12 +488,11 @@ export const AdminPortal = () => {
               <CardTitle>Class Assignments Overview</CardTitle>
             </CardHeader>
             <CardContent>
-              {loading ? (
-                <div>Loading assignments...</div>
-              ) : (
-                <div className="space-y-4">
-                  {allAssignments.map(({ user, assignments }) => (
-                    <div key={user.id} className="p-4 border rounded-lg">
+              {loading ? <div>Loading assignments...</div> : <div className="space-y-4">
+                  {allAssignments.map(({
+                user,
+                assignments
+              }) => <div key={user.id} className="p-4 border rounded-lg">
                       <div className="flex items-center justify-between mb-3">
                         <div>
                           <h3 className="font-medium">
@@ -516,22 +506,14 @@ export const AdminPortal = () => {
                       </div>
                       <div>
                         <p className="text-sm font-medium mb-2">Assigned Classes:</p>
-                        {assignments.length === 0 ? (
-                          <p className="text-sm text-gray-500">No class assignments</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-2">
-                            {assignments.map(assignment => (
-                              <Badge key={assignment.id} variant="outline">
+                        {assignments.length === 0 ? <p className="text-sm text-gray-500">No class assignments</p> : <div className="flex flex-wrap gap-2">
+                            {assignments.map(assignment => <Badge key={assignment.id} variant="outline">
                                 Class {assignment.class}-{assignment.section}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
+                              </Badge>)}
+                          </div>}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    </div>)}
+                </div>}
             </CardContent>
           </Card>
         </TabsContent>
@@ -549,40 +531,26 @@ export const AdminPortal = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="edit_first_name">First Name</Label>
-                <Input 
-                  id="edit_first_name" 
-                  value={editUserForm.first_name} 
-                  onChange={e => setEditUserForm({
-                    ...editUserForm,
-                    first_name: e.target.value
-                  })} 
-                  required 
-                />
+                <Input id="edit_first_name" value={editUserForm.first_name} onChange={e => setEditUserForm({
+                ...editUserForm,
+                first_name: e.target.value
+              })} required />
               </div>
               <div>
                 <Label htmlFor="edit_last_name">Last Name</Label>
-                <Input 
-                  id="edit_last_name" 
-                  value={editUserForm.last_name} 
-                  onChange={e => setEditUserForm({
-                    ...editUserForm,
-                    last_name: e.target.value
-                  })} 
-                  required 
-                />
+                <Input id="edit_last_name" value={editUserForm.last_name} onChange={e => setEditUserForm({
+                ...editUserForm,
+                last_name: e.target.value
+              })} required />
               </div>
             </div>
             
-            {profile?.role === 'admin' && (
-              <div>
+            {profile?.role === 'admin' && <div>
                 <Label htmlFor="edit_role">Role</Label>
-                <Select 
-                  value={editUserForm.role} 
-                  onValueChange={(value: any) => setEditUserForm({
-                    ...editUserForm,
-                    role: value
-                  })}
-                >
+                <Select value={editUserForm.role} onValueChange={(value: any) => setEditUserForm({
+              ...editUserForm,
+              role: value
+            })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -592,21 +560,14 @@ export const AdminPortal = () => {
                     <SelectItem value="admin">Admin</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-            )}
+              </div>}
             
             <div>
               <Label htmlFor="edit_password">New Password (optional)</Label>
-              <Input 
-                id="edit_password" 
-                type="password" 
-                value={editUserForm.password} 
-                onChange={e => setEditUserForm({
-                  ...editUserForm,
-                  password: e.target.value
-                })}
-                placeholder="Leave blank to keep current password"
-              />
+              <Input id="edit_password" type="password" value={editUserForm.password} onChange={e => setEditUserForm({
+              ...editUserForm,
+              password: e.target.value
+            })} placeholder="Leave blank to keep current password" />
             </div>
             
             <Button type="submit" className="w-full">
