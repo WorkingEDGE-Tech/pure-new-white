@@ -8,17 +8,20 @@ import { BarChart3, Users, GraduationCap, DollarSign, Calendar, Clock, Activity 
 import { studentService, attendanceService, feesService, activitiesService } from '@/services/database';
 import { format } from 'date-fns';
 
-export const Dashboard = () => {
+interface DashboardProps {
+  onNavigate?: (module: string) => void;
+}
+
+export const Dashboard = ({ onNavigate }: DashboardProps) => {
   const [selectedDateRange, setSelectedDateRange] = useState('today');
 
   // Fetch recent activities
   const { data: recentActivities = [] } = useQuery({
     queryKey: ['activities'],
     queryFn: activitiesService.getAll,
-    refetchInterval: 30000 // Refresh every 30 seconds
+    refetchInterval: 30000
   });
 
-  // Fetch stats
   const { data: totalStudents = [] } = useQuery({
     queryKey: ['students'],
     queryFn: studentService.getAll
@@ -35,7 +38,6 @@ export const Dashboard = () => {
     queryFn: () => attendanceService.getByDate(todayDate)
   });
 
-  // Calculate stats
   const activeStudents = totalStudents.filter(student => student.status === 'active').length;
   const totalDues = totalFees
     .filter(fee => fee.status === 'pending' || fee.status === 'partially_paid')
@@ -72,6 +74,12 @@ export const Dashboard = () => {
         return 'bg-orange-100 text-orange-800';
       default:
         return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const handleQuickAction = (module: string) => {
+    if (onNavigate) {
+      onNavigate(module);
     }
   };
 
@@ -170,26 +178,42 @@ export const Dashboard = () => {
         </CardContent>
       </Card>
 
-      {/* Quick Actions */}
+      {/* Enhanced Quick Actions with functional buttons */}
       <Card className="transition-all duration-200 hover:shadow-md">
         <CardHeader>
           <CardTitle>Quick Actions</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Button variant="outline" className="h-20 flex flex-col items-center justify-center space-y-2">
+            <Button 
+              variant="outline" 
+              className="h-20 flex flex-col items-center justify-center space-y-2"
+              onClick={() => handleQuickAction('students')}
+            >
               <Users className="w-6 h-6" />
               <span>Add Student</span>
             </Button>
-            <Button variant="outline" className="h-20 flex flex-col items-center justify-center space-y-2">
+            <Button 
+              variant="outline" 
+              className="h-20 flex flex-col items-center justify-center space-y-2"
+              onClick={() => handleQuickAction('attendance')}
+            >
               <Calendar className="w-6 h-6" />
               <span>Mark Attendance</span>
             </Button>
-            <Button variant="outline" className="h-20 flex flex-col items-center justify-center space-y-2">
+            <Button 
+              variant="outline" 
+              className="h-20 flex flex-col items-center justify-center space-y-2"
+              onClick={() => handleQuickAction('grades')}
+            >
               <GraduationCap className="w-6 h-6" />
               <span>Enter Grades</span>
             </Button>
-            <Button variant="outline" className="h-20 flex flex-col items-center justify-center space-y-2">
+            <Button 
+              variant="outline" 
+              className="h-20 flex flex-col items-center justify-center space-y-2"
+              onClick={() => handleQuickAction('reports')}
+            >
               <BarChart3 className="w-6 h-6" />
               <span>View Reports</span>
             </Button>

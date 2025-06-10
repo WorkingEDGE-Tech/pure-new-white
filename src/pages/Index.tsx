@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -26,7 +25,7 @@ const Index = () => {
   const renderActiveModule = () => {
     switch (activeModule) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard onNavigate={setActiveModule} />;
       case 'students':
         return <StudentsModule />;
       case 'grades':
@@ -42,7 +41,7 @@ const Index = () => {
       case 'admin':
         return <AdminPortal />;
       default:
-        return <Dashboard />;
+        return <Dashboard onNavigate={setActiveModule} />;
     }
   };
 
