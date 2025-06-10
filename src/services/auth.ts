@@ -1,3 +1,4 @@
+
 import { supabase } from '@/integrations/supabase/client';
 
 export interface UserProfile {
@@ -16,6 +17,12 @@ export interface ClassAssignment {
   user_id: string;
   class: string;
   section: string;
+  created_at: string;
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
   created_at: string;
 }
 
@@ -90,6 +97,94 @@ export const adminService = {
 
     if (error) throw error;
     return data || [];
+  },
+
+  async getAllAuthUsers(): Promise<AuthUser[]> {
+    try {
+      // Note: This requires admin privileges to access auth.users
+      const { data, error } = await supabase.auth.admin.listUsers();
+      
+      if (error) throw error;
+      
+      return data.users.map(user => ({
+        id: user.id,
+        email: user.email || '',
+        created_at: user.created_at
+      }));
+    } catch (error) {
+      console.error('Error fetching auth users:', error);
+      // Fallback: return empty array if admin access is not available
+      return [];
+    }
+  },
+
+  async getAuthUsersWithoutProfiles(): Promise<AuthUser[]> {
+    try {
+      const [authUsers, profiles] = await Promise.all([
+        adminService.getAllAuthUsers(),
+        adminService.getAllProfiles()
+      ]);
+      
+      const profileUserIds = new Set(profiles.map(p => p.id));
+      
+      return authUsers.filter(user => !profileUserIds.has(user.id));
+    } catch (error) {
+      console.error('Error fetching users without profiles:', error);
+      return [];
+    }
+  },
+
+  async signUpUser(email: string, password: string, userData: {
+    first_name: string;
+    last_name: string;
+    role: 'admin' | 'teacher' | 'staff';
+  }) {
+    try {
+      // Create the auth user
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true
+      });
+
+      if (authError) {
+        return { data: null, error: { message: authError.message } };
+      }
+
+      if (!authData.user) {
+        return { data: null, error: { message: 'Failed to create auth user' } };
+      }
+
+      // Create the profile
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: authData.user.id,
+          email: email,
+          first_name: userData.first_name,
+          last_name: userData.last_name,
+          role: userData.role,
+          is_active: true
+        })
+        .select()
+        .single();
+
+      if (profileError) {
+        // If profile creation fails, we should clean up the auth user
+        await supabase.auth.admin.deleteUser(authData.user.id);
+        return { data: null, error: { message: profileError.message } };
+      }
+
+      return { data: { user: authData.user, profile: profileData }, error: null };
+    } catch (error: any) {
+      console.error('Signup error:', error);
+      return { 
+        data: null, 
+        error: { 
+          message: error.message || 'Failed to create user account.' 
+        } 
+      };
+    }
   },
 
   async createUserProfile(userId: string, userData: {

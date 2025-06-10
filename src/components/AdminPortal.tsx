@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { adminService, UserProfile, ClassAssignment } from '@/services/auth';
+import { adminService, UserProfile, ClassAssignment, AuthUser } from '@/services/auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Users, UserPlus, Settings, Trash2 } from 'lucide-react';
+import { Users, UserPlus, Settings, Trash2, UserCheck } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 const CLASS_OPTIONS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
@@ -20,16 +21,27 @@ export const AdminPortal = () => {
   const { isAdmin } = useAuth();
   const { toast } = useToast();
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [authUsersWithoutProfiles, setAuthUsersWithoutProfiles] = useState<AuthUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [createUserOpen, setCreateUserOpen] = useState(false);
+  const [signupUserOpen, setSignupUserOpen] = useState(false);
   const [assignClassOpen, setAssignClassOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [userAssignments, setUserAssignments] = useState<ClassAssignment[]>([]);
 
-  // Create user form state
-  const [newUser, setNewUser] = useState({
+  // Create user profile form state (for existing auth users)
+  const [newUserProfile, setNewUserProfile] = useState({
     userId: '',
     email: '',
+    first_name: '',
+    last_name: '',
+    role: 'teacher' as 'admin' | 'teacher' | 'staff'
+  });
+
+  // Signup form state (for completely new users)
+  const [signupUser, setSignupUser] = useState({
+    email: '',
+    password: '',
     first_name: '',
     last_name: '',
     role: 'teacher' as 'admin' | 'teacher' | 'staff'
@@ -43,19 +55,23 @@ export const AdminPortal = () => {
 
   useEffect(() => {
     if (isAdmin()) {
-      fetchUsers();
+      fetchData();
     }
   }, [isAdmin]);
 
-  const fetchUsers = async () => {
+  const fetchData = async () => {
     try {
-      const profiles = await adminService.getAllProfiles();
+      const [profiles, authUsers] = await Promise.all([
+        adminService.getAllProfiles(),
+        adminService.getAuthUsersWithoutProfiles()
+      ]);
       setUsers(profiles);
+      setAuthUsersWithoutProfiles(authUsers);
     } catch (error) {
-      console.error('Error fetching users:', error);
+      console.error('Error fetching data:', error);
       toast({
         title: 'Error',
-        description: 'Failed to fetch users',
+        description: 'Failed to fetch data',
         variant: 'destructive'
       });
     } finally {
@@ -63,14 +79,19 @@ export const AdminPortal = () => {
     }
   };
 
-  const handleCreateUser = async (e: React.FormEvent) => {
+  const handleCreateUserProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const { error } = await adminService.createUserProfile(newUser.userId, {
-        email: newUser.email,
-        first_name: newUser.first_name,
-        last_name: newUser.last_name,
-        role: newUser.role
+      const selectedAuthUser = authUsersWithoutProfiles.find(u => u.id === newUserProfile.userId);
+      if (!selectedAuthUser) {
+        throw new Error('Please select a valid auth user');
+      }
+
+      const { error } = await adminService.createUserProfile(newUserProfile.userId, {
+        email: selectedAuthUser.email,
+        first_name: newUserProfile.first_name,
+        last_name: newUserProfile.last_name,
+        role: newUserProfile.role
       });
       
       if (error) throw error;
@@ -80,7 +101,7 @@ export const AdminPortal = () => {
         description: 'User profile created successfully'
       });
 
-      setNewUser({
+      setNewUserProfile({
         userId: '',
         email: '',
         first_name: '',
@@ -88,11 +109,49 @@ export const AdminPortal = () => {
         role: 'teacher'
       });
       setCreateUserOpen(false);
-      fetchUsers();
+      fetchData();
     } catch (error: any) {
       toast({
         title: 'Error',
         description: error.message || 'Failed to create user profile',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleSignupUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const { error } = await adminService.signUpUser(
+        signupUser.email,
+        signupUser.password,
+        {
+          first_name: signupUser.first_name,
+          last_name: signupUser.last_name,
+          role: signupUser.role
+        }
+      );
+      
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'User account created successfully'
+      });
+
+      setSignupUser({
+        email: '',
+        password: '',
+        first_name: '',
+        last_name: '',
+        role: 'teacher'
+      });
+      setSignupUserOpen(false);
+      fetchData();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to create user account',
         variant: 'destructive'
       });
     }
@@ -153,6 +212,17 @@ export const AdminPortal = () => {
     }
   };
 
+  const handleAuthUserSelection = (userId: string) => {
+    const selectedAuthUser = authUsersWithoutProfiles.find(u => u.id === userId);
+    if (selectedAuthUser) {
+      setNewUserProfile({
+        ...newUserProfile,
+        userId: selectedAuthUser.id,
+        email: selectedAuthUser.email
+      });
+    }
+  };
+
   if (!isAdmin()) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -172,78 +242,168 @@ export const AdminPortal = () => {
           <h1 className="text-3xl font-bold">Admin Portal</h1>
           <p className="text-gray-600 mt-2">Manage users and permissions</p>
         </div>
-        <Dialog open={createUserOpen} onOpenChange={setCreateUserOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <UserPlus className="w-4 h-4 mr-2" />
-              Create User Profile
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Create User Profile</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleCreateUser} className="space-y-4">
-              <div>
-                <Label htmlFor="userId">User ID</Label>
-                <Input
-                  id="userId"
-                  placeholder="Enter the Supabase Auth User ID"
-                  value={newUser.userId}
-                  onChange={(e) => setNewUser({...newUser, userId: e.target.value})}
-                  required
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  The user must already exist in Supabase Auth. Get the ID from the Supabase dashboard.
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+        <div className="flex gap-2">
+          <Dialog open={signupUserOpen} onOpenChange={setSignupUserOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <UserCheck className="w-4 h-4 mr-2" />
+                Sign Up User
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Sign Up New User</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSignupUser} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="signup_first_name">First Name</Label>
+                    <Input
+                      id="signup_first_name"
+                      value={signupUser.first_name}
+                      onChange={(e) => setSignupUser({...signupUser, first_name: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="signup_last_name">Last Name</Label>
+                    <Input
+                      id="signup_last_name"
+                      value={signupUser.last_name}
+                      onChange={(e) => setSignupUser({...signupUser, last_name: e.target.value})}
+                      required
+                    />
+                  </div>
+                </div>
                 <div>
-                  <Label htmlFor="first_name">First Name</Label>
+                  <Label htmlFor="signup_email">Email</Label>
                   <Input
-                    id="first_name"
-                    value={newUser.first_name}
-                    onChange={(e) => setNewUser({...newUser, first_name: e.target.value})}
+                    id="signup_email"
+                    type="email"
+                    value={signupUser.email}
+                    onChange={(e) => setSignupUser({...signupUser, email: e.target.value})}
                     required
                   />
                 </div>
                 <div>
-                  <Label htmlFor="last_name">Last Name</Label>
+                  <Label htmlFor="signup_password">Password</Label>
                   <Input
-                    id="last_name"
-                    value={newUser.last_name}
-                    onChange={(e) => setNewUser({...newUser, last_name: e.target.value})}
+                    id="signup_password"
+                    type="password"
+                    value={signupUser.password}
+                    onChange={(e) => setSignupUser({...signupUser, password: e.target.value})}
                     required
+                    minLength={6}
                   />
                 </div>
-              </div>
-              <div>
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={newUser.email}
-                  onChange={(e) => setNewUser({...newUser, email: e.target.value})}
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="role">Role</Label>
-                <Select value={newUser.role} onValueChange={(value: any) => setNewUser({...newUser, role: value})}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="teacher">Teacher</SelectItem>
-                    <SelectItem value="staff">Staff</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button type="submit" className="w-full">Create User Profile</Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <div>
+                  <Label htmlFor="signup_role">Role</Label>
+                  <Select value={signupUser.role} onValueChange={(value: any) => setSignupUser({...signupUser, role: value})}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="teacher">Teacher</SelectItem>
+                      <SelectItem value="staff">Staff</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button type="submit" className="w-full">Create Account</Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={createUserOpen} onOpenChange={setCreateUserOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <UserPlus className="w-4 h-4 mr-2" />
+                Create User Profile
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create User Profile</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleCreateUserProfile} className="space-y-4">
+                <div>
+                  <Label htmlFor="authUser">Select Auth User</Label>
+                  <Select value={newUserProfile.userId} onValueChange={handleAuthUserSelection}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select an existing auth user" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {authUsersWithoutProfiles.map((authUser) => (
+                        <SelectItem key={authUser.id} value={authUser.id}>
+                          {authUser.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {authUsersWithoutProfiles.length === 0 
+                      ? "No auth users without profiles found"
+                      : "Select from existing auth users who don't have profiles yet"
+                    }
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="profile_first_name">First Name</Label>
+                    <Input
+                      id="profile_first_name"
+                      value={newUserProfile.first_name}
+                      onChange={(e) => setNewUserProfile({...newUserProfile, first_name: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="profile_last_name">Last Name</Label>
+                    <Input
+                      id="profile_last_name"
+                      value={newUserProfile.last_name}
+                      onChange={(e) => setNewUserProfile({...newUserProfile, last_name: e.target.value})}
+                      required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor="profile_email">Email</Label>
+                  <Input
+                    id="profile_email"
+                    type="email"
+                    value={newUserProfile.email}
+                    readOnly
+                    className="bg-gray-100"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Email is automatically filled from the selected auth user
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="profile_role">Role</Label>
+                  <Select value={newUserProfile.role} onValueChange={(value: any) => setNewUserProfile({...newUserProfile, role: value})}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="teacher">Teacher</SelectItem>
+                      <SelectItem value="staff">Staff</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button 
+                  type="submit" 
+                  className="w-full"
+                  disabled={!newUserProfile.userId}
+                >
+                  Create User Profile
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <Tabs defaultValue="users" className="space-y-4">
